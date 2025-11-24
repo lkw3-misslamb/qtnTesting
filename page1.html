@@ -1,0 +1,739 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>香港小學數學 - 立體圖形展開圖互動示範</title>
+    <style>
+        :root {
+            --primary-color: #4a90e2;
+            --bg-color: #f5f7fa;
+            --panel-bg: rgba(255, 255, 255, 0.95);
+        }
+        body {
+            font-family: 'Segoe UI', Microsoft JhengHei, sans-serif;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: var(--bg-color);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            height: 100vh;
+        }
+        #canvas-container {
+            width: 100%;
+            height: 100%;
+            position: relative;
+            cursor: grab;
+            background: radial-gradient(circle, #ffffff 0%, #e6e9f0 100%);
+        }
+        #canvas-container:active {
+            cursor: grabbing;
+        }
+        svg {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+        
+        /* UI Control Panel */
+        .controls {
+            position: absolute;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--panel-bg);
+            padding: 20px 30px;
+            border-radius: 16px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+            width: 320px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255,255,255,0.5);
+        }
+
+        .title {
+            font-size: 1.2em;
+            font-weight: bold;
+            color: #333;
+            text-align: center;
+            margin-bottom: 5px;
+        }
+
+        .shape-selector {
+            display: flex;
+            justify-content: space-between;
+            background: #eef2f7;
+            padding: 4px;
+            border-radius: 8px;
+        }
+        
+        .shape-btn {
+            flex: 1;
+            border: none;
+            background: transparent;
+            padding: 8px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            color: #666;
+            transition: all 0.2s;
+        }
+        
+        .shape-btn.active {
+            background: white;
+            color: var(--primary-color);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+        }
+
+        .slider-container {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .slider-label {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.9em;
+            color: #555;
+        }
+
+        input[type=range] {
+            -webkit-appearance: none;
+            width: 100%;
+            background: transparent;
+        }
+        
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 20px;
+            width: 20px;
+            border-radius: 50%;
+            background: var(--primary-color);
+            cursor: pointer;
+            margin-top: -8px;
+            box-shadow: 0 2px 6px rgba(74, 144, 226, 0.4);
+        }
+        
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 4px;
+            cursor: pointer;
+            background: #ddd;
+            border-radius: 2px;
+        }
+
+        .instruction {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(255,255,255,0.8);
+            padding: 10px 15px;
+            border-radius: 8px;
+            font-size: 0.9em;
+            color: #666;
+            pointer-events: none;
+        }
+
+        /* SVG Element Styles */
+        .face {
+            stroke: #333;
+            stroke-width: 1.5;
+            stroke-linejoin: round;
+            transition: fill 0.3s;
+        }
+        .face:hover {
+            fill-opacity: 0.9;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="canvas-container">
+        <div class="instruction">🖱️ 拖曳旋轉視角 | 滾輪縮放</div>
+        <svg id="main-svg" viewBox="-400 -300 800 600" preserveAspectRatio="xMidYMid slice">
+            <g id="scene-group"></g>
+        </svg>
+
+        <div class="controls">
+            <div class="title">立體圖形展開圖</div>
+            
+            <div class="shape-selector">
+                <button class="shape-btn active" onclick="setShape('cube')">正方體</button>
+                <button class="shape-btn" onclick="setShape('pyramid')">四角錐</button>
+                <button class="shape-btn" onclick="setShape('prism')">三角柱</button>
+            </div>
+
+            <div class="slider-container">
+                <div class="slider-label">
+                    <span>展開</span>
+                    <span id="fold-percent">0%</span>
+                    <span>摺疊</span>
+                </div>
+                <input type="range" id="fold-slider" min="0" max="100" value="0" step="1">
+            </div>
+        </div>
+    </div>
+
+<script>
+/**
+ * 簡易 3D 引擎與圖形數據定義
+ */
+
+// 數學工具
+const Math3D = {
+    rotateX: (theta) => [
+        [1, 0, 0],
+        [0, Math.cos(theta), -Math.sin(theta)],
+        [0, Math.sin(theta), Math.cos(theta)]
+    ],
+    rotateY: (theta) => [
+        [Math.cos(theta), 0, Math.sin(theta)],
+        [0, 1, 0],
+        [-Math.sin(theta), 0, Math.cos(theta)]
+    ],
+    rotateZ: (theta) => [
+        [Math.cos(theta), -Math.sin(theta), 0],
+        [Math.sin(theta), Math.cos(theta), 0],
+        [0, 0, 1]
+    ],
+    multiply: (m, v) => { // Matrix (3x3) x Vector (3)
+        return [
+            m[0][0]*v[0] + m[0][1]*v[1] + m[0][2]*v[2],
+            m[1][0]*v[0] + m[1][1]*v[1] + m[1][2]*v[2],
+            m[2][0]*v[0] + m[2][1]*v[1] + m[2][2]*v[2]
+        ];
+    },
+    multiplyMatrices: (a, b) => { // 3x3 x 3x3
+        let result = [[0,0,0],[0,0,0],[0,0,0]];
+        for(let i=0; i<3; i++) {
+            for(let j=0; j<3; j++) {
+                for(let k=0; k<3; k++) {
+                    result[i][j] += a[i][k] * b[k][j];
+                }
+            }
+        }
+        return result;
+    },
+    identity: () => [[1,0,0],[0,1,0],[0,0,1]],
+    add: (v1, v2) => [v1[0]+v2[0], v1[1]+v2[1], v1[2]+v2[2]],
+    sub: (v1, v2) => [v1[0]-v2[0], v1[1]-v2[1], v1[2]-v2[2]]
+};
+
+// 圖形定義
+// 結構：每個圖形由一個 Root Face (根面) 和一系列子面 (Children) 組成
+// Children 定義：{ vertices: [], hinge: [v1_idx, v2_idx], angleMultiplier: 1, color: '', children: [] }
+// hinge 是連接到父面的邊，angleMultiplier 定義摺疊角度的倍率 (通常為 1，即 90度)
+
+const SHAPES = {
+    cube: {
+        name: "正方體",
+        baseColor: "#4a90e2",
+        // 1-4-1 展開圖結構
+        root: {
+            // 中央面
+            vertices: [[-50,-50,0], [50,-50,0], [50,50,0], [-50,50,0]], 
+            children: [
+                {   // 上
+                    vertices: [[-50,-150,0], [50,-150,0], [50,-50,0], [-50,-50,0]],
+                    hingeEdge: 0, // 相對於父面的邊索引 (父面: 0->1, 1->2, 2->3, 3->0) - 這裡簡化邏輯，直接定義相對於父面的位移
+                    // 為了通用性，我們改用 "相對坐標" 和 "旋轉軸" 的概念
+                    // 這裡採用更簡單的 Scene Graph：每個子節點定義其在「展開狀態」下的頂點，以及「摺疊軸」
+                    // 摺疊軸由父面的某條邊定義。
+                    // 為了簡化，我們硬編碼每個面的數據和層級。
+                    
+                    // id: 1 (上), 連接 root 的邊: p0-p1 (top edge of root is p0-p1 if defined ccw?)
+                    // 讓我們用簡單的相對偏移定義：
+                    // Root: Center square.
+                    // Child 1 (Top): Attached to Root's top edge.
+                    attachTo: [0, 1], // Root vertices indices 0 and 1 (assuming -50,-50 and 50,-50)
+                    points: [[-50,-150,0], [50,-150,0]], // The new points
+                    foldAngle: 90,
+                    axis: "x", // World axis to rotate around when flat? No, axis is the edge vector.
+                    children: [
+                        {
+                            // 最上面的額外一塊 (1-4-1 的那個 1)
+                            attachTo: [0, 1], // Attached to Child 1's first edge
+                            points: [[-50,-250,0], [50,-250,0]],
+                            foldAngle: 90,
+                            children: []
+                        }
+                    ]
+                },
+                {   // 右
+                    attachTo: [1, 2],
+                    points: [[150,-50,0], [150,50,0]],
+                    foldAngle: 90,
+                    children: []
+                },
+                {   // 下
+                    attachTo: [2, 3],
+                    points: [[50,150,0], [-50,150,0]],
+                    foldAngle: 90,
+                    children: []
+                },
+                {   // 左
+                    attachTo: [3, 0],
+                    points: [[-150,50,0], [-150,-50,0]],
+                    foldAngle: 90,
+                    children: []
+                }
+            ]
+        }
+    },
+    pyramid: {
+        name: "四角錐",
+        baseColor: "#e24a4a",
+        root: {
+            vertices: [[-50,-50,0], [50,-50,0], [50,50,0], [-50,50,0]], // Base Square
+            children: [
+                { attachTo: [0, 1], points: [[0, -130, 0]], foldAngle: 70, children: [] }, // Top Triangle
+                { attachTo: [1, 2], points: [[130, 0, 0]], foldAngle: 70, children: [] }, // Right Triangle
+                { attachTo: [2, 3], points: [[0, 130, 0]], foldAngle: 70, children: [] }, // Bottom Triangle
+                { attachTo: [3, 0], points: [[-130, 0, 0]], foldAngle: 70, children: [] }  // Left Triangle
+            ]
+        }
+    },
+    prism: {
+        name: "三角柱",
+        baseColor: "#50e3c2",
+        // 展開圖：長方形-長方形-長方形，中間長方形上下各一個三角形
+        root: {
+            vertices: [[-50,-75,0], [50,-75,0], [50,75,0], [-50,75,0]], // Middle Rect
+            children: [
+                {   // Left Rect
+                    attachTo: [3, 0], 
+                    points: [[-150, 75, 0], [-150, -75, 0]], 
+                    foldAngle: 60, 
+                    children: [] 
+                },
+                {   // Right Rect
+                    attachTo: [1, 2], 
+                    points: [[150, -75, 0], [150, 75, 0]], 
+                    foldAngle: 60, 
+                    children: [] 
+                },
+                {   // Top Triangle
+                    attachTo: [0, 1], 
+                    points: [[0, -161.6, 0]], // height of equilateral triangle with side 100 is ~86.6. -75 - 86.6 = -161.6
+                    foldAngle: 90, 
+                    children: [] 
+                },
+                {   // Bottom Triangle
+                    attachTo: [2, 3], 
+                    points: [[0, 161.6, 0]], 
+                    foldAngle: 90, 
+                    children: [] 
+                }
+            ]
+        }
+    }
+};
+
+// 應用程式狀態
+let state = {
+    currentShape: 'cube',
+    foldProgress: 0, // 0.0 to 1.0
+    rotation: { x: -30, y: 45 },
+    zoom: 1.0,
+    isDragging: false,
+    lastMouse: { x: 0, y: 0 }
+};
+
+// 初始化
+const svg = document.getElementById('main-svg');
+const sceneGroup = document.getElementById('scene-group');
+
+function init() {
+    render();
+    
+    // Event Listeners
+    document.getElementById('fold-slider').addEventListener('input', (e) => {
+        state.foldProgress = parseInt(e.target.value) / 100;
+        document.getElementById('fold-percent').innerText = e.target.value + "%";
+        render();
+    });
+
+    // Mouse Rotation
+    const container = document.getElementById('canvas-container');
+    container.addEventListener('mousedown', e => {
+        state.isDragging = true;
+        state.lastMouse = { x: e.clientX, y: e.clientY };
+    });
+    window.addEventListener('mousemove', e => {
+        if (!state.isDragging) return;
+        const dx = e.clientX - state.lastMouse.x;
+        const dy = e.clientY - state.lastMouse.y;
+        state.rotation.y += dx * 0.5;
+        state.rotation.x -= dy * 0.5;
+        state.lastMouse = { x: e.clientX, y: e.clientY };
+        render();
+    });
+    window.addEventListener('mouseup', () => state.isDragging = false);
+    
+    // Zoom
+    container.addEventListener('wheel', e => {
+        e.preventDefault();
+        state.zoom += e.deltaY * -0.001;
+        state.zoom = Math.max(0.1, Math.min(3, state.zoom));
+        render();
+    });
+}
+
+// 切換圖形
+window.setShape = function(shapeKey) {
+    state.currentShape = shapeKey;
+    document.querySelectorAll('.shape-btn').forEach(b => b.classList.remove('active'));
+    event.target.classList.add('active');
+    
+    // Reset slider slightly for effect
+    state.foldProgress = 0;
+    document.getElementById('fold-slider').value = 0;
+    document.getElementById('fold-percent').innerText = "0%";
+    
+    render();
+}
+
+// 渲染核心
+function render() {
+    // 清空場景
+    while (sceneGroup.firstChild) {
+        sceneGroup.removeChild(sceneGroup.firstChild);
+    }
+
+    const shapeData = SHAPES[state.currentShape];
+    const faces = []; // Store all faces to sort by Z later
+
+    // 構建變換矩陣 (View Matrix)
+    const rotX = Math3D.rotateX(state.rotation.x * Math.PI / 180);
+    const rotY = Math3D.rotateY(state.rotation.y * Math.PI / 180);
+    const viewMatrix = Math3D.multiplyMatrices(rotX, rotY);
+
+    // 遞歸處理圖形層級
+    function processFace(faceDef, parentMatrix, parentVertices) {
+        // 當前面的頂點
+        let currentVertices = [];
+
+        // 如果是 Root，直接使用定義的頂點
+        if (!faceDef.attachTo) {
+            currentVertices = faceDef.vertices.map(v => [...v]);
+        } else {
+            // 如果是子面，基於父面的連接邊進行變換
+            // 1. 找到連接邊的兩個點 (樞紐軸)
+            const p1 = parentVertices[faceDef.attachTo[0]];
+            const p2 = parentVertices[faceDef.attachTo[1]];
+            
+            // 2. 計算軸向量
+            const axis = Math3D.sub(p2, p1);
+            const axisLen = Math.sqrt(axis[0]**2 + axis[1]**2 + axis[2]**2);
+            const u = [axis[0]/axisLen, axis[1]/axisLen, axis[2]/axisLen]; // Unit vector
+            
+            // 3. 建立旋轉矩陣 (Rodrigues' rotation formula or Quaternion simplified)
+            // 這裡簡化：我們在局部空間構建面，然後變換。
+            // 但我們已經定義了 "flat" 狀態下的點。
+            // 更簡單的方法：計算摺疊角度
+            const angle = (faceDef.foldAngle * state.foldProgress) * (Math.PI / 180);
+            
+            // 繞軸旋轉函數 (Rotate point v around line passing through p1 with direction u by angle)
+            const rotateAroundAxis = (v, p1, u, angle) => {
+                const c = Math.cos(angle);
+                const s = Math.sin(angle);
+                const t = 1 - c;
+                const x = v[0]-p1[0], y = v[1]-p1[1], z = v[2]-p1[2];
+                
+                const newX = (t*u[0]*u[0] + c)*x + (t*u[0]*u[1] - s*u[2])*y + (t*u[0]*u[2] + s*u[1])*z;
+                const newY = (t*u[0]*u[1] + s*u[2])*x + (t*u[1]*u[1] + c)*y + (t*u[1]*u[2] - s*u[0])*z;
+                const newZ = (t*u[0]*u[2] - s*u[1])*x + (t*u[1]*u[2] + s*u[0])*y + (t*u[2]*u[2] + c)*z;
+                
+                return [newX+p1[0], newY+p1[1], newZ+p1[2]];
+            };
+
+            // 父面提供的邊是 p1, p2。新面的點是 faceDef.points
+            // 默認是平的。我們需要繞著 p1-p2 軸旋轉
+            // 注意：這裡假設了 faceDef.points 已經在 "Flat" 狀態下的正確位置
+            // 我們的數據定義比較混雜，為了簡單，我們動態計算 Flat 位置比較好，但這裡為了代碼短，
+            // 我們假設 faceDef.points 是相對於 attachTo 的邊向外延伸的。
+            // 實際上，遞歸邏輯中，我們應該 "繼承" 父面的變換，然後再疊加自己的摺疊旋轉。
+            
+            // 修正邏輯：
+            // 1. 將新點視為與父面共面 (因為是展開圖)。
+            //    這裡的數據結構中，子面的 points 其實是絕對坐標(在展開平面上)。
+            //    所以我們只需要對這些點應用 "累積的摺疊旋轉"。
+            //    但是每個子面都依賴於其父面的旋轉狀態。
+            
+            // 回溯思路：其實每個面只需要繞著它與父面的交界線旋轉 `angle` 度。
+            // 這個旋轉會帶動它所有的子孫面。
+            // 所以我們不需要構建復雜的 Scene Graph，只需要遍歷樹。
+            // 根面不動。
+            // 子面繞著與根面的邊旋轉。
+            // 孫面繞著與子面的邊旋轉（此時邊已經被子面旋轉過了）。
+            
+            // 實作：
+            // 我們先定義初始的 "Flat" 頂點集合。這需要一個遞歸函數來構建初始頂點列表。
+            // 但我們的數據結構有點混合。
+            // 讓我們採用 "動態計算"：
+            // 輸入是 parentVertices (已經是 3D 空間中正確位置)。
+            // 輸入 faceDef.points (這是本地定義的 2D 形狀的延伸部分)。
+            // 我們需要先把它們放到 parentVertices 的平面上 (Flat 狀態)，然後再旋轉。
+            
+            // 為了簡化示範，我們假設所有數據的初始 vertices 都是在 Z=0 平面上定義好的展開圖坐標。
+            // 我們只需要計算每個面的 "累積變換矩陣"。
+            
+            // 重新定義處理流程：
+            // 1. 每個面有一個初始的 Flat Vertices (需預計算或硬編碼)。
+            //    上面的數據結構中，points 是 Flat 坐標。
+            // 2. 每個面有一個變換矩陣 T。
+            //    Root: T = I
+            //    Child: T = Parent_T * Rotate(around hinge edge, angle)
+            // 3. 最終頂點 = Flat_Vertex * T
+            
+            // 讓我們硬編碼 Flat 坐標到數據結構中，避免複雜計算。
+            // (上面的數據結構其實已經是 Flat 全局坐標了，除了 attachTo 是索引)
+            
+            // 計算 Hinge (Pivot Line)
+            // Hinge 是由 Parent 變換後的頂點決定的。
+            const hingeP1 = parentVertices[faceDef.attachTo[0]];
+            const hingeP2 = parentVertices[faceDef.attachTo[1]];
+            
+            // 構建新的頂點
+            // 初始點 (Flat) -> 應用當前累積的旋轉
+            // 問題：如果只用 Parent Matrix，無法表達 "繞著邊旋轉"。
+            // 正確做法：
+            // Current Points = Transform(Original Flat Points)
+            // Transform 是累積的。
+            // 但是 "繞邊旋轉" 的邊是動態的。
+            
+            // 簡化算法 (Forward Kinematics):
+            // 1. 獲取原始 Flat 坐標 (我們有)。
+            // 2. 對於當前面，先應用父面的所有變換。
+            // 3. 然後，找到當前 Hinge 線 (在父面變換後的空間中)。
+            // 4. 構建一個 "繞該 Hinge 線旋轉 angle" 的變換。
+            // 5. 將此變換應用於當前面及其所有後代。
+            
+            // 這有點難寫在簡單循環裡。
+            // 讓我們用 "堆疊變換" 的方式。
+            // 每個面都從 Flat 狀態開始。
+            // 它的最終位置 = FlatPos 
+            //    * Rotate(Root-Child1 Edge) 
+            //    * Rotate(Child1-Child2 Edge) ...
+            // 注意旋轉順序和軸的變化。
+            
+            // 最穩定的方法：
+            // 遞歸傳遞 "父面頂點"。
+            // 計算出 Hinge Edge。
+            // 當前面的頂點首先定位在 "與父面共面" (即 Flat 狀態下的相對位置，這可以通過幾何推導，或者我們信任數據中的 Flat 坐標與 Parent Flat 坐標的關係)。
+            // 其實數據裡的 points 已經是 Flat 坐標。
+            // 所以：
+            // 1. 拿到自己的 Flat Points。
+            // 2. 這些點首先要經過 "父面已經經歷的所有變換"。
+            // 3. 然後，這些點要 "繞著 Hinge Edge" 再轉 `angle` 度。
+            
+            // 但這有一個問題：父面的變換已經包含了父面的旋轉。
+            // 如果我們先應用父面變換，我們得到的點是 "附著在父面上，且未相對於父面摺疊" 的狀態。
+            // 這正是我們想要的！
+            // 然後我們再應用 "相對於父面的摺疊"。
+            
+            // 步驟：
+            // 1. 定義面的初始 Flat 坐標 (Base Shape)。
+            //    Root 的 Flat 坐標已知。
+            //    Children 的 Flat 坐標已知 (points)。
+            // 2. 變換邏輯：
+            //    function getTransformedVertices(face, parentTransformFunc)
+            //      Let flatVerts = face.points;
+            //      Let tempVerts = flatVerts.map(parentTransformFunc); // 跟隨父面移動
+            //      Let hinge = [ transformedParent[idx1], transformedParent[idx2] ];
+            //      Let myRotateFunc = (v) => rotateAroundAxis(v, hinge[0], hingeVec, angle);
+            //      Let finalVerts = tempVerts.map(myRotateFunc);
+            //      return finalVerts, combineFunc(parentTransformFunc, myRotateFunc);
+            
+            // 我們需要把變換包裝成函數傳遞。
+        }
+        
+        // 實作上述邏輯
+        // 為了簡單，我們不傳遞函數，直接傳遞頂點和遞歸計算
+        
+        // 輔助：對一組點應用變換
+        // 這裡我們發現一個問題：如果只保存點，無法對 "原始 Flat 坐標" 應用變換鏈。
+        // 我們需要 "當前狀態下的點"。
+        // 1. 讓新點 = 經過父面變換後的 Flat Points (即它在父面平面上)。
+        //    怎麼得到？
+        //    我們可以簡單地認為：所有面一開始都是 Flat 的。
+        //    我們遍歷層級樹，計算每個節點相對於父節點的 "局部旋轉"。
+        //    這需要局部坐標系。
+        
+        // 替代方案 (直接操作頂點)：
+        // 每個節點保存其當前頂點。
+        // 遍歷樹。對於節點 N，它有一個 Hinge (由父節點 P 的兩個頂點決定)。
+        // 我們計算 N (及 N 的所有子孫) 繞 Hinge 的旋轉。
+        // 這樣做意味著：當我們旋轉 Child 時，我們必須同時旋轉 GrandChild。
+        // 這是一個後序遍歷或者層級更新。
+        
+        // 算法：
+        // 1. 重置所有頂點到 Flat 狀態 (從 SHAPES 數據讀取)。
+        // 2. 遍歷樹 (DFS)。
+        //    對於每個節點 (Face)，如果它有摺疊角度 > 0：
+        //      找到它的 Hinge (連接到父面的邊)。
+        //      計算旋轉矩陣 M (繞 Hinge 轉 angle)。
+        //      將 M 應用於該節點的所有頂點，以及該節點的所有子孫節點的頂點。
+        
+        // 這需要我們先把所有頂點展平，建立好樹結構引用，然後一次性計算。
+    }
+    
+    // 1. 構建場景圖 (Flat State)
+    let allFaces = []; // { id, vertices: [], children: [], parent: null, foldAngle: ... }
+    
+    // 遞歸構建
+    function buildTree(def, parentFace) {
+        let vertices = [];
+        if (parentFace === null) {
+            vertices = def.vertices.map(v => [...v]); // Copy
+        } else {
+            vertices = def.points.map(v => [...v]);
+        }
+        
+        let face = {
+            vertices: vertices,
+            children: [],
+            color: shapeData.baseColor,
+            alpha: 0.6,
+            attachTo: def.attachTo, // Indices in parent
+            foldAngle: def.foldAngle || 0
+        };
+        
+        if (parentFace) {
+            parentFace.children.push(face);
+            face.parent = parentFace;
+        }
+        
+        if (def.children) {
+            def.children.forEach(c => buildTree(c, face));
+        }
+        
+        allFaces.push(face);
+        return face;
+    }
+    
+    const rootFace = buildTree(shapeData.root, null);
+    
+    // 2. 應用摺疊 (Animation Logic)
+    // 我們需要一個函數：rotateBranch(face, axisP1, axisP2, angle)
+    function rotateBranch(face, p1, p2, angle) {
+        // 旋轉當前面的所有點
+        const axis = Math3D.sub(p2, p1);
+        const axisLen = Math.sqrt(axis[0]**2 + axis[1]**2 + axis[2]**2);
+        if (axisLen < 0.001) return;
+        const u = [axis[0]/axisLen, axis[1]/axisLen, axis[2]/axisLen];
+        
+        const rotateFunc = (v) => {
+            // Rodrigues rotation
+            const c = Math.cos(angle);
+            const s = Math.sin(angle);
+            const t = 1 - c;
+            const x = v[0]-p1[0], y = v[1]-p1[1], z = v[2]-p1[2];
+            return [
+                (t*u[0]*u[0] + c)*x + (t*u[0]*u[1] - s*u[2])*y + (t*u[0]*u[2] + s*u[1])*z + p1[0],
+                (t*u[0]*u[1] + s*u[2])*x + (t*u[1]*u[1] + c)*y + (t*u[1]*u[2] - s*u[0])*z + p1[1],
+                (t*u[0]*u[2] - s*u[1])*x + (t*u[1]*u[2] + s*u[0])*y + (t*u[2]*u[2] + c)*z + p1[2]
+            ];
+        };
+        
+        face.vertices = face.vertices.map(rotateFunc);
+        
+        // 遞歸旋轉所有子孫
+        face.children.forEach(child => {
+            rotateBranch(child, p1, p2, angle);
+        });
+    }
+    
+    // 執行摺疊遍歷 (BFS/DFS 均可，但必須從 Root 的子節點開始)
+    // 這裡重要的是順序：當我們旋轉一個 Parent 時，Children 已經被帶著動了？
+    // 不，上面的 rotateBranch 已經處理了 "帶動子孫"。
+    // 所以我們只需要對每個節點，按照 "從根到葉" 的順序，計算它相對於父節點的摺疊即可。
+    // 因為如果先轉了子節點，再轉父節點，子節點會被父節點的旋轉 "再次" 帶動，這是正確的。
+    // 等等，"再次帶動" 是正確的嗎？
+    // 是的。物理上，如果我摺起側面，側面上的蓋子也會跟著動。然後我再摺蓋子。
+    // 或者我先摺蓋子，再摺側面。結果是一樣的 (剛體變換的可交換性? 不一定，但層級旋轉通常是這樣)。
+    // 為了邏輯清晰，我們採用 DFS。
+    
+    function applyFolding(face) {
+        if (face.parent) {
+            // 計算 Hinge (此時 Parent 已經可能被移動過了，這是正確的，我們需要當前的 Hinge 位置)
+            const p1 = face.parent.vertices[face.attachTo[0]];
+            const p2 = face.parent.vertices[face.attachTo[1]];
+            
+            const angleRad = (face.foldAngle * state.foldProgress) * (Math.PI / 180);
+            
+            // 旋轉自己和自己的子孫
+            rotateBranch(face, p1, p2, angleRad);
+        }
+        
+        // 繼續處理子節點
+        face.children.forEach(child => applyFolding(child));
+    }
+    
+    applyFolding(rootFace); // Start processing
+    
+    // 3. 投影與繪製 (Projection)
+    // 計算每個面的 Z depth 排序
+    let drawList = allFaces.map(face => {
+        // 視圖變換
+        const viewVerts = face.vertices.map(v => Math3D.multiply(viewMatrix, v));
+        
+        // 計算中心點 Z (用於排序)
+        let avgZ = 0;
+        viewVerts.forEach(v => avgZ += v[2]);
+        avgZ /= viewVerts.length;
+        
+        return {
+            face: face,
+            verts: viewVerts,
+            z: avgZ
+        };
+    });
+    
+    // Sort painter's algorithm
+    drawList.sort((a, b) => b.z - a.z);
+    
+    // Draw
+    drawList.forEach(item => {
+        const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        
+        // Perspective Projection
+        // Simple: x' = x / (z + dist)
+        const d = 800;
+        const screenVerts = item.verts.map(v => {
+            const scale = d / (d - v[2]) * state.zoom;
+            return [
+                v[0] * scale,
+                v[1] * scale
+            ];
+        });
+        
+        // Construct Path D
+        let dStr = `M ${screenVerts[0][0]} ${screenVerts[0][1]} `;
+        for(let i=1; i<screenVerts.length; i++) {
+            dStr += `L ${screenVerts[i][0]} ${screenVerts[i][1]} `;
+        }
+        dStr += "Z";
+        
+        path.setAttribute("d", dStr);
+        path.setAttribute("class", "face");
+        path.setAttribute("fill", item.face.color);
+        path.setAttribute("fill-opacity", item.face.alpha);
+        
+        sceneGroup.appendChild(path);
+        
+        // 繪製頂點編號 (Debug) 或 邊框優化
+        // 這裡只繪製面
+    });
+}
+
+init();
+
+</script>
+</body>
+</html>
