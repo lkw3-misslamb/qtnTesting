@@ -1,1 +1,370 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SVG 三角形角度互動示範</title>
+    <style>
+        :root {
+            --primary-color: #3b82f6;
+            --handle-color: #ef4444;
+            --handle-hover: #dc2626;
+            --bg-color: #f8fafc;
+            --text-color: #1e293b;
+        }
 
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg-color);
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            overflow: hidden; /* 防止捲動 */
+        }
+
+        header {
+            padding: 1rem;
+            text-align: center;
+            background: white;
+            width: 100%;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            z-index: 10;
+        }
+
+        h1 {
+            margin: 0;
+            font-size: 1.25rem;
+            color: var(--text-color);
+        }
+
+        p {
+            margin: 0.5rem 0 0;
+            font-size: 0.9rem;
+            color: #64748b;
+        }
+
+        #canvas-container {
+            flex: 1;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            position: relative;
+            cursor: crosshair;
+        }
+
+        svg {
+            width: 100%;
+            height: 100%;
+            background-image: radial-gradient(#cbd5e1 1px, transparent 1px);
+            background-size: 20px 20px;
+        }
+
+        /* SVG 元素樣式 */
+        .triangle-shape {
+            fill: rgba(59, 130, 246, 0.1);
+            stroke: var(--primary-color);
+            stroke-width: 2;
+            stroke-linejoin: round;
+        }
+
+        .handle {
+            fill: white;
+            stroke: var(--handle-color);
+            stroke-width: 3;
+            cursor: move; /* 讓游標顯示為可移動 */
+            transition: r 0.2s ease, stroke-width 0.2s ease;
+            filter: drop-shadow(0 2px 4px rgba(0,0,0,0.2));
+        }
+
+        .handle:hover, .handle.active {
+            r: 10;
+            stroke-width: 4;
+            stroke: var(--handle-hover);
+        }
+
+        .angle-arc {
+            fill: none;
+            stroke: var(--text-color);
+            stroke-width: 1.5;
+            opacity: 0.6;
+        }
+
+        .angle-text {
+            font-size: 14px;
+            font-weight: bold;
+            fill: var(--text-color);
+            pointer-events: none; /* 防止文字擋住滑鼠事件 */
+            user-select: none;
+            text-anchor: middle;
+            dominant-baseline: middle;
+        }
+
+        .info-panel {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 10px 15px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            pointer-events: none;
+            font-size: 0.9rem;
+        }
+        
+        .info-item {
+            margin: 2px 0;
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <h1>SVG 三角形互動示範</h1>
+        <p>拖動紅色的頂點來改變形狀，角度將即時計算。</p>
+    </header>
+
+    <div id="canvas-container">
+        <svg id="svg" viewBox="0 0 800 600" preserveAspectRatio="xMidYMid slice">
+            <!-- 內角弧線 -->
+            <path id="arc0" class="angle-arc" />
+            <path id="arc1" class="angle-arc" />
+            <path id="arc2" class="angle-arc" />
+
+            <!-- 三角形本體 -->
+            <polygon id="triangle" points="" class="triangle-shape" />
+
+            <!-- 角度文字 -->
+            <text id="text0" class="angle-text"></text>
+            <text id="text1" class="angle-text"></text>
+            <text id="text2" class="angle-text"></text>
+
+            <!-- 控制點 (放在最後以確保在最上層) -->
+            <circle id="p0" class="handle" r="8" cx="0" cy="0" />
+            <circle id="p1" class="handle" r="8" cx="0" cy="0" />
+            <circle id="p2" class="handle" r="8" cx="0" cy="0" />
+        </svg>
+
+        <div class="info-panel">
+            <div class="info-item">總和: <span id="sum-display">180°</span></div>
+        </div>
+    </div>
+
+    <script>
+        // 初始化點的座標
+        const points = [
+            { x: 400, y: 150 }, // 頂點 A
+            { x: 200, y: 450 }, // 頂點 B
+            { x: 600, y: 450 }  // 頂點 C
+        ];
+
+        // 狀態變數
+        let draggingPointIndex = -1;
+        const svg = document.getElementById('svg');
+        const triangle = document.getElementById('triangle');
+        
+        // 獲取 SVG 點變換矩陣，用於將滑鼠座標轉換為 SVG 座標
+        function getMousePosition(evt) {
+            const CTM = svg.getScreenCTM();
+            let x, y;
+            if (evt.touches) {
+                x = evt.touches[0].clientX;
+                y = evt.touches[0].clientY;
+            } else {
+                x = evt.clientX;
+                y = evt.clientY;
+            }
+            return {
+                x: (x - CTM.e) / CTM.a,
+                y: (y - CTM.f) / CTM.d
+            };
+        }
+
+        // 計算兩點距離
+        function dist(p1, p2) {
+            return Math.sqrt(Math.pow(p2.x - p1.x, 2) + Math.pow(p2.y - p1.y, 2));
+        }
+
+        // 計算角度 (使用餘弦定理)
+        // 回傳值為度數
+        function calculateAngle(pTarget, pA, pB) {
+            const a = dist(pTarget, pB);
+            const b = dist(pTarget, pA);
+            const c = dist(pA, pB);
+            
+            // 餘弦定理: c^2 = a^2 + b^2 - 2ab cos(C)
+            // cos(C) = (a^2 + b^2 - c^2) / 2ab
+            let cosAngle = (a * a + b * b - c * c) / (2 * a * b);
+            
+            // 防止浮點數誤差導致數值超出 [-1, 1]
+            cosAngle = Math.max(-1, Math.min(1, cosAngle));
+            
+            const angleRad = Math.acos(cosAngle);
+            return (angleRad * 180) / Math.PI;
+        }
+
+        // 繪製圓弧路徑
+        function getArcPath(center, pA, pB, radius) {
+            // 計算從 center 指向 pA 和 pB 的角度
+            const startAngle = Math.atan2(pA.y - center.y, pA.x - center.x);
+            const endAngle = Math.atan2(pB.y - center.y, pB.x - center.x);
+
+            let diff = endAngle - startAngle;
+            
+            // 確保走內角 (三角形內角和 < 360，這裡簡化處理選擇較小的夾角繪製)
+            // 這裡需要透過叉積或其他方式判斷方向，但簡單的視覺修正如下：
+            while (diff <= -Math.PI) diff += 2 * Math.PI;
+            while (diff > Math.PI) diff -= 2 * Math.PI;
+
+            // 如果夾角過小，就不畫弧線
+            if (Math.abs(diff) < 0.1) return "";
+
+            // SVG Arc 指令: A rx ry x-axis-rotation large-arc-flag sweep-flag x y
+            // sweep-flag 決定順時針還是逆時針
+            const sweepFlag = diff > 0 ? 1 : 0;
+            
+            const startX = center.x + radius * Math.cos(startAngle);
+            const startY = center.y + radius * Math.sin(startAngle);
+            const endX = center.x + radius * Math.cos(endAngle);
+            const endY = center.y + radius * Math.sin(endAngle);
+
+            return `M ${center.x} ${center.y} L ${startX} ${startY} A ${radius} ${radius} 0 0 ${sweepFlag} ${endX} ${endY} Z`;
+        }
+
+        // 核心渲染函數
+        function update() {
+            // 1. 更新三角形形狀
+            const pointsStr = points.map(p => `${p.x},${p.y}`).join(' ');
+            triangle.setAttribute('points', pointsStr);
+
+            // 2. 更新每個頂點的位置、角度和文字
+            points.forEach((p, i) => {
+                // 更新控制點位置
+                const circle = document.getElementById(`p${i}`);
+                circle.setAttribute('cx', p.x);
+                circle.setAttribute('cy', p.y);
+
+                // 取得另外兩個點的索引
+                const prevIndex = (i + 2) % 3;
+                const nextIndex = (i + 1) % 3;
+                const pPrev = points[prevIndex];
+                const pNext = points[nextIndex];
+
+                // 計算角度
+                const angle = calculateAngle(p, pPrev, pNext);
+                
+                // 更新角度文字
+                const textEl = document.getElementById(`text${i}`);
+                textEl.textContent = Math.round(angle) + '°';
+
+                // 計算文字位置：放在角平分線方向的外側
+                // 計算從頂點指向另外兩點的向量
+                let v1 = { x: pPrev.x - p.x, y: pPrev.y - p.y };
+                let v2 = { x: pNext.x - p.x, y: pNext.y - p.y };
+                // 單位化
+                const len1 = Math.sqrt(v1.x*v1.x + v1.y*v1.y);
+                const len2 = Math.sqrt(v2.x*v2.x + v2.y*v2.y);
+                v1.x /= len1; v1.y /= len1;
+                v2.x /= len2; v2.y /= len2;
+                
+                // 平均向量 (角平分線方向，指向三角形內部)
+                let bisector = { x: v1.x + v2.x, y: v1.y + v2.y };
+                const bLen = Math.sqrt(bisector.x*bisector.x + bisector.y*bisector.y);
+                
+                // 為了把文字放在頂點"外側"，我們取反向
+                const offsetDistance = 35; // 文字距離頂點的距離
+                let textX, textY;
+
+                if (bLen < 0.01) {
+                    // 極端情況：三點共線
+                    textX = p.x; 
+                    textY = p.y - 20;
+                } else {
+                    bisector.x /= bLen;
+                    bisector.y /= bLen;
+                    textX = p.x - bisector.x * offsetDistance;
+                    textY = p.y - bisector.y * offsetDistance;
+                }
+
+                textEl.setAttribute('x', textX);
+                textEl.setAttribute('y', textY);
+
+                // 繪製角度弧線 (視覺裝飾)
+                // 簡單起見，我們只在角度大於 10 度時繪製
+                const arcEl = document.getElementById(`arc${i}`);
+                if (angle > 5) {
+                    const arcRadius = 30; // 弧線半徑
+                    const arcPath = getArcPath(p, pPrev, pNext, arcRadius);
+                    arcEl.setAttribute('d', arcPath);
+                    // 根據角度大小改變弧線顏色深淺
+                    arcEl.style.fill = `rgba(59, 130, 246, ${Math.min(0.5, angle/360)})`;
+                } else {
+                    arcEl.setAttribute('d', '');
+                }
+            });
+        }
+
+        // 事件監聽器綁定
+        points.forEach((_, i) => {
+            const circle = document.getElementById(`p${i}`);
+            
+            // 滑鼠按下
+            circle.addEventListener('mousedown', (e) => {
+                e.preventDefault(); // 防止文字選取
+                draggingPointIndex = i;
+                circle.classList.add('active');
+            });
+            
+            // 觸控開始
+            circle.addEventListener('touchstart', (e) => {
+                e.preventDefault();
+                draggingPointIndex = i;
+                circle.classList.add('active');
+            }, {passive: false});
+        });
+
+        // 全域移動事件 (綁定在 window 確保拖太快出界也能感應)
+        window.addEventListener('mousemove', (e) => {
+            if (draggingPointIndex !== -1) {
+                const pos = getMousePosition(e);
+                // 限制範圍 (可選，防止拖出畫面太遠)
+                points[draggingPointIndex].x = pos.x;
+                points[draggingPointIndex].y = pos.y;
+                update();
+            }
+        });
+
+        window.addEventListener('touchmove', (e) => {
+            if (draggingPointIndex !== -1) {
+                e.preventDefault(); // 防止手機畫面捲動
+                const pos = getMousePosition(e);
+                points[draggingPointIndex].x = pos.x;
+                points[draggingPointIndex].y = pos.y;
+                update();
+            }
+        }, {passive: false});
+
+        // 放開事件
+        const stopDrag = () => {
+            if (draggingPointIndex !== -1) {
+                document.getElementById(`p${draggingPointIndex}`).classList.remove('active');
+                draggingPointIndex = -1;
+            }
+        };
+
+        window.addEventListener('mouseup', stopDrag);
+        window.addEventListener('touchend', stopDrag);
+
+        // 視窗大小改變時重新計算座標系統 (SVG viewbox 是固定的，但以防萬一)
+        window.addEventListener('resize', update);
+
+        // 初始渲染
+        update();
+
+    </script>
+</body>
+</html>
