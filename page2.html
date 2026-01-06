@@ -1,370 +1,442 @@
-<!DOCTYPE html>
-<html lang="zh-TW">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SVG 三角形角度互動示範</title>
-    <style>
-        :root {
-            --primary-color: #3b82f6;
-            --handle-color: #ef4444;
-            --handle-hover: #dc2626;
-            --bg-color: #f8fafc;
-            --text-color: #1e293b;
-        }
+import React, { useState, useMemo } from 'react';
+import { Database, ArrowRightLeft, ArrowLeft, ArrowRight, XCircle, FileText, Grid, Info } from 'lucide-react';
 
-        body {
-            margin: 0;
-            padding: 0;
-            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-            background-color: var(--bg-color);
-            height: 100vh;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            overflow: hidden; /* 防止捲動 */
-        }
+// 模擬數據
+const TABLE_A = [
+  { id: 1, name: '小明 (Ming)', role: 'Admin' },
+  { id: 2, name: '小華 (Hua)', role: 'User' },
+  { id: 3, name: '大壯 (John)', role: 'User' },
+  { id: 4, name: '美美 (May)', role: 'Guest' },
+];
 
-        header {
-            padding: 1rem;
-            text-align: center;
-            background: white;
-            width: 100%;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-            z-index: 10;
-        }
+const TABLE_B = [
+  { order_id: 101, amount: 500, user_id: 2 },
+  { order_id: 102, amount: 1200, user_id: 1 },
+  { order_id: 103, amount: 300, user_id: 2 },
+  { order_id: 104, amount: 999, user_id: 5 }, // ID 5 不在 Table A 中
+];
 
-        h1 {
-            margin: 0;
-            font-size: 1.25rem;
-            color: var(--text-color);
-        }
+const MODES = {
+  INNER: 'INNER JOIN',
+  LEFT: 'LEFT JOIN',
+  RIGHT: 'RIGHT JOIN',
+  FULL: 'FULL OUTER JOIN',
+  IMPLICIT: 'IMPLICIT JOIN (WHERE)',
+  CROSS: 'CROSS JOIN',
+};
 
-        p {
-            margin: 0.5rem 0 0;
-            font-size: 0.9rem;
-            color: #64748b;
-        }
+const SQLJoinVisualizer = () => {
+  const [mode, setMode] = useState(MODES.INNER);
 
-        #canvas-container {
-            flex: 1;
-            width: 100%;
-            height: 100%;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            position: relative;
-            cursor: crosshair;
-        }
+  // 根據模式計算結果邏輯
+  const resultData = useMemo(() => {
+    let results = [];
 
-        svg {
-            width: 100%;
-            height: 100%;
-            background-image: radial-gradient(#cbd5e1 1px, transparent 1px);
-            background-size: 20px 20px;
-        }
+    switch (mode) {
+      case MODES.INNER:
+      case MODES.IMPLICIT: // Implicit Join 的結果與 Inner Join 相同
+        // A 和 B 的交集
+        TABLE_A.forEach(rowA => {
+          const matches = TABLE_B.filter(rowB => rowB.user_id === rowA.id);
+          matches.forEach(rowB => {
+            results.push({ ...rowA, ...rowB, key: `${rowA.id}-${rowB.order_id}`, _source: 'both' });
+          });
+        });
+        break;
 
-        /* SVG 元素樣式 */
-        .triangle-shape {
-            fill: rgba(59, 130, 246, 0.1);
-            stroke: var(--primary-color);
-            stroke-width: 2;
-            stroke-linejoin: round;
-        }
+      case MODES.LEFT:
+        // A 的全部 + B 的匹配 (無匹配則 NULL)
+        TABLE_A.forEach(rowA => {
+          const matches = TABLE_B.filter(rowB => rowB.user_id === rowA.id);
+          if (matches.length > 0) {
+            matches.forEach(rowB => {
+              results.push({ ...rowA, ...rowB, key: `${rowA.id}-${rowB.order_id}`, _source: 'both' });
+            });
+          } else {
+            results.push({ ...rowA, order_id: null, amount: null, user_id: null, key: `${rowA.id}-null`, _source: 'left' });
+          }
+        });
+        break;
 
-        .handle {
-            fill: white;
-            stroke: var(--handle-color);
-            stroke-width: 3;
-            cursor: move; /* 讓游標顯示為可移動 */
-            transition: r 0.2s ease, stroke-width 0.2s ease;
-            filter: drop-shadow(0 2px 4px rgba(0,0,0,0.2));
-        }
+      case MODES.RIGHT:
+        // B 的全部 + A 的匹配 (無匹配則 NULL)
+        TABLE_B.forEach(rowB => {
+          const matchA = TABLE_A.find(rowA => rowA.id === rowB.user_id);
+          if (matchA) {
+            results.push({ ...matchA, ...rowB, key: `${matchA.id}-${rowB.order_id}`, _source: 'both' });
+          } else {
+            results.push({ id: null, name: null, role: null, ...rowB, key: `null-${rowB.order_id}`, _source: 'right' });
+          }
+        });
+        break;
 
-        .handle:hover, .handle.active {
-            r: 10;
-            stroke-width: 4;
-            stroke: var(--handle-hover);
-        }
+      case MODES.FULL:
+        // A 的全部 + B 的全部 (互補 NULL)
+        // 1. 先做 Left Join
+        TABLE_A.forEach(rowA => {
+          const matches = TABLE_B.filter(rowB => rowB.user_id === rowA.id);
+          if (matches.length > 0) {
+            matches.forEach(rowB => {
+              results.push({ ...rowA, ...rowB, key: `${rowA.id}-${rowB.order_id}`, _source: 'both' });
+            });
+          } else {
+            results.push({ ...rowA, order_id: null, amount: null, user_id: null, key: `${rowA.id}-null`, _source: 'left' });
+          }
+        });
+        // 2. 找 B 中沒被匹配到的
+        TABLE_B.forEach(rowB => {
+          const matchA = TABLE_A.find(rowA => rowA.id === rowB.user_id);
+          if (!matchA) {
+            results.push({ id: null, name: null, role: null, ...rowB, key: `null-${rowB.order_id}`, _source: 'right' });
+          }
+        });
+        break;
 
-        .angle-arc {
-            fill: none;
-            stroke: var(--text-color);
-            stroke-width: 1.5;
-            opacity: 0.6;
-        }
+      case MODES.CROSS:
+        // 笛卡爾積：每一行 A 配對每一行 B
+        TABLE_A.forEach(rowA => {
+            TABLE_B.forEach(rowB => {
+                results.push({ ...rowA, ...rowB, key: `${rowA.id}-${rowB.order_id}-cross`, _source: 'both' });
+            });
+        });
+        break;
 
-        .angle-text {
-            font-size: 14px;
-            font-weight: bold;
-            fill: var(--text-color);
-            pointer-events: none; /* 防止文字擋住滑鼠事件 */
-            user-select: none;
-            text-anchor: middle;
-            dominant-baseline: middle;
-        }
+      default:
+        break;
+    }
+    return results;
+  }, [mode]);
 
-        .info-panel {
-            position: absolute;
-            bottom: 20px;
-            left: 20px;
-            background: rgba(255, 255, 255, 0.9);
-            padding: 10px 15px;
-            border-radius: 8px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-            pointer-events: none;
-            font-size: 0.9rem;
-        }
+  // 生成 SVG 線條配置
+  const connections = useMemo(() => {
+    const lines = [];
+    const rowHeight = 40;
+    const headerOffset = 40;
+
+    TABLE_A.forEach((rowA, indexA) => {
+      const yA = headerOffset + indexA * rowHeight + rowHeight / 2;
+      
+      TABLE_B.forEach((rowB, indexB) => {
+        const yB = headerOffset + indexB * rowHeight + rowHeight / 2;
         
-        .info-item {
-            margin: 2px 0;
+        if (mode === MODES.CROSS) {
+            // Cross Join: 連接所有線
+            lines.push({
+                id: `cross-${rowA.id}-${rowB.order_id}`,
+                y1: yA,
+                y2: yB,
+                matched: true,
+                type: 'cross'
+            });
+        } else {
+            // 其他 Join: 只連接匹配的
+            if (rowA.id === rowB.user_id) {
+                lines.push({
+                    id: `conn-${rowA.id}-${rowB.order_id}`,
+                    y1: yA,
+                    y2: yB,
+                    matched: true,
+                    type: 'match'
+                });
+            }
         }
-    </style>
-</head>
-<body>
+      });
+    });
 
-    <header>
-        <h1>SVG 三角形互動示範</h1>
-        <p>拖動紅色的頂點來改變形狀，角度將即時計算。</p>
-    </header>
+    return lines;
+  }, [mode]);
 
-    <div id="canvas-container">
-        <svg id="svg" viewBox="0 0 800 600" preserveAspectRatio="xMidYMid slice">
-            <!-- 內角弧線 -->
-            <path id="arc0" class="angle-arc" />
-            <path id="arc1" class="angle-arc" />
-            <path id="arc2" class="angle-arc" />
+  // 生成 SQL 顯示字串
+  const sqlQuery = useMemo(() => {
+    switch (mode) {
+      case MODES.INNER:
+        return `SELECT * \nFROM Users A \nINNER JOIN Orders B \nON A.id = B.user_id;`;
+      case MODES.LEFT:
+        return `SELECT * \nFROM Users A \nLEFT JOIN Orders B \nON A.id = B.user_id;`;
+      case MODES.RIGHT:
+        return `SELECT * \nFROM Users A \nRIGHT JOIN Orders B \nON A.id = B.user_id;`;
+      case MODES.FULL:
+        return `SELECT * \nFROM Users A \nFULL OUTER JOIN Orders B \nON A.id = B.user_id;`;
+      case MODES.IMPLICIT:
+        return `SELECT * \nFROM Users A, Orders B \nWHERE A.id = B.user_id;`;
+      case MODES.CROSS:
+        return `SELECT * \nFROM Users A \nCROSS JOIN Orders B;`;
+      default:
+        return '';
+    }
+  }, [mode]);
 
-            <!-- 三角形本體 -->
-            <polygon id="triangle" points="" class="triangle-shape" />
+  // 判斷某一行是否應該高亮或半透明 (Visual State)
+  const getRowStyle = (tableType, row) => {
+    // Cross Join 全部參與
+    if (mode === MODES.CROSS) {
+        return tableType === 'A' ? 'bg-purple-50 border-l-4 border-purple-300' : 'bg-purple-50 border-r-4 border-purple-300';
+    }
 
-            <!-- 角度文字 -->
-            <text id="text0" class="angle-text"></text>
-            <text id="text1" class="angle-text"></text>
-            <text id="text2" class="angle-text"></text>
+    let isParticipating = false;
+    
+    // 計算是否參與 Join
+    if (tableType === 'A') {
+        const hasMatch = TABLE_B.some(b => b.user_id === row.id);
+        if ((mode === MODES.INNER || mode === MODES.IMPLICIT) && hasMatch) isParticipating = true;
+        if (mode === MODES.LEFT) isParticipating = true; 
+        if (mode === MODES.RIGHT && hasMatch) isParticipating = true;
+        if (mode === MODES.FULL) isParticipating = true;
+    } else {
+        const hasMatch = TABLE_A.some(a => a.id === row.user_id);
+        if ((mode === MODES.INNER || mode === MODES.IMPLICIT) && hasMatch) isParticipating = true;
+        if (mode === MODES.LEFT && hasMatch) isParticipating = true;
+        if (mode === MODES.RIGHT) isParticipating = true; 
+        if (mode === MODES.FULL) isParticipating = true;
+    }
 
-            <!-- 控制點 (放在最後以確保在最上層) -->
-            <circle id="p0" class="handle" r="8" cx="0" cy="0" />
-            <circle id="p1" class="handle" r="8" cx="0" cy="0" />
-            <circle id="p2" class="handle" r="8" cx="0" cy="0" />
-        </svg>
+    if (!isParticipating) return 'opacity-40 grayscale';
+    
+    // 顏色標記
+    if (tableType === 'A') {
+         const hasMatch = TABLE_B.some(b => b.user_id === row.id);
+         if (!hasMatch && (mode === MODES.LEFT || mode === MODES.FULL)) return 'bg-yellow-50 border-l-4 border-yellow-400';
+         return 'bg-green-50 border-l-4 border-green-500';
+    } else {
+         const hasMatch = TABLE_A.some(a => a.id === row.user_id);
+         if (!hasMatch && (mode === MODES.RIGHT || mode === MODES.FULL)) return 'bg-yellow-50 border-r-4 border-yellow-400';
+         return 'bg-blue-50 border-r-4 border-blue-500';
+    }
+  };
 
-        <div class="info-panel">
-            <div class="info-item">總和: <span id="sum-display">180°</span></div>
+  return (
+    <div className="min-h-screen bg-slate-50 p-4 md:p-8 font-sans text-slate-800">
+      <div className="max-w-6xl mx-auto space-y-6">
+        
+        {/* Header */}
+        <header className="flex flex-col md:flex-row justify-between items-start md:items-center border-b border-slate-200 pb-4">
+          <div>
+            <h1 className="text-2xl font-bold flex items-center gap-2 text-indigo-700">
+              <Database className="w-6 h-6" />
+              SQL Join 可視化教學
+            </h1>
+            <p className="text-slate-500 text-sm mt-1">互動式學習 SQL 表格連接原理</p>
+          </div>
+          
+          {/* Controls */}
+          <div className="flex flex-wrap gap-2 mt-4 md:mt-0">
+             {[
+               { m: MODES.INNER, label: 'Inner Join', icon: ArrowRightLeft },
+               { m: MODES.IMPLICIT, label: 'Implicit (Where)', icon: FileText },
+               { m: MODES.LEFT, label: 'Left Join', icon: ArrowLeft },
+               { m: MODES.RIGHT, label: 'Right Join', icon: ArrowRight },
+               { m: MODES.FULL, label: 'Full Join', icon: XCircle },
+               { m: MODES.CROSS, label: 'Cross Join', icon: Grid },
+             ].map((btn) => (
+               <button
+                 key={btn.m}
+                 onClick={() => setMode(btn.m)}
+                 className={`px-3 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-2
+                   ${mode === btn.m 
+                     ? 'bg-indigo-600 text-white shadow-md scale-105' 
+                     : 'bg-white text-slate-600 hover:bg-indigo-50 border border-slate-200'}`}
+               >
+                 <btn.icon className="w-4 h-4" />
+                 {btn.label}
+               </button>
+             ))}
+          </div>
+        </header>
+
+        {/* Visualization Area */}
+        <div className="bg-white rounded-xl shadow-lg border border-slate-200 p-6 overflow-hidden relative">
+          
+          <div className="flex justify-between mb-2 px-4">
+            <div className="font-bold text-slate-700 w-1/3 text-center">Table A: Users (用戶表)</div>
+            <div className="font-bold text-slate-700 w-1/3 text-center"></div>
+            <div className="font-bold text-slate-700 w-1/3 text-center">Table B: Orders (訂單表)</div>
+          </div>
+
+          <div className="flex justify-between relative" style={{ minHeight: '220px' }}>
+            
+            {/* Table A */}
+            <div className="w-1/3 z-10 space-y-0">
+               <div className="bg-slate-100 border border-slate-300 p-2 font-mono text-xs text-slate-500 flex font-bold rounded-t-lg">
+                 <span className="w-8">ID</span>
+                 <span className="flex-1">Name</span>
+               </div>
+               {TABLE_A.map((row, idx) => (
+                 <div 
+                   key={row.id} 
+                   className={`h-10 flex items-center px-2 text-sm border-b border-x border-slate-200 transition-all duration-300 ${getRowStyle('A', row)}`}
+                   style={{ height: '40px' }}
+                 >
+                   <span className="w-8 font-mono font-bold">{row.id}</span>
+                   <span className="truncate">{row.name}</span>
+                 </div>
+               ))}
+               <div className="bg-slate-50 p-2 text-xs text-center text-slate-400 border border-slate-200 border-t-0 rounded-b-lg">
+                  (共 4 筆)
+               </div>
+            </div>
+
+            {/* SVG Connector Layer */}
+            <div className="absolute top-0 left-0 w-full h-full pointer-events-none z-0">
+               <svg className="w-full h-full">
+                 <defs>
+                   <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+                     <path d="M0,0 L0,6 L9,3 z" fill="#6366f1" />
+                   </marker>
+                 </defs>
+
+                 {/* Join Lines */}
+                 {connections.map((conn, i) => (
+                   <path
+                     key={conn.id}
+                     d={`M 33% ${conn.y1} C 45% ${conn.y1}, 55% ${conn.y2}, 67% ${conn.y2}`}
+                     fill="none"
+                     stroke={
+                        mode === MODES.CROSS 
+                        ? '#d8b4fe' 
+                        : (mode === MODES.RIGHT ? '#3b82f6' : '#22c55e')
+                     } 
+                     strokeWidth={mode === MODES.CROSS ? "1" : "3"}
+                     strokeOpacity={mode === MODES.CROSS ? "0.3" : "0.6"}
+                     className="transition-all duration-500"
+                   />
+                 ))}
+                 
+               </svg>
+            </div>
+
+            {/* Table B */}
+            <div className="w-1/3 z-10 flex flex-col items-end">
+               <div className="w-full">
+                <div className="bg-slate-100 border border-slate-300 p-2 font-mono text-xs text-slate-500 flex font-bold rounded-t-lg">
+                    <span className="w-12">OrdID</span>
+                    <span className="w-12 text-center">UsrID</span>
+                    <span className="flex-1 text-right">Amt</span>
+                </div>
+                {TABLE_B.map((row, idx) => (
+                    <div 
+                    key={row.order_id} 
+                    className={`h-10 flex items-center px-2 text-sm border-b border-x border-slate-200 transition-all duration-300 ${getRowStyle('B', row)}`}
+                    style={{ height: '40px' }}
+                    >
+                    <span className="w-12 font-mono">{row.order_id}</span>
+                    <span className="w-12 text-center font-bold font-mono bg-slate-100 rounded">{row.user_id}</span>
+                    <span className="flex-1 text-right">${row.amount}</span>
+                    </div>
+                ))}
+                 <div className="bg-slate-50 p-2 text-xs text-center text-slate-400 border border-slate-200 border-t-0 rounded-b-lg">
+                  (共 4 筆)
+               </div>
+               </div>
+            </div>
+
+          </div>
+          
+          {/* Legend / Tip */}
+          <div className="mt-4 flex gap-4 text-xs text-slate-500 justify-center bg-slate-50 p-2 rounded-lg border border-slate-100">
+             {mode === MODES.CROSS ? (
+                 <div className="flex items-center gap-1">
+                    <span className="w-3 h-3 bg-purple-100 border border-purple-400 block rounded"></span>
+                    <span>笛卡爾積組合 (Cartesian Product)</span>
+                 </div>
+             ) : (
+                <>
+                    <div className="flex items-center gap-1">
+                    <span className="w-3 h-3 bg-green-100 border border-green-500 block rounded"></span>
+                    <span>匹配成功/保留 (Match)</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                    <span className="w-3 h-3 bg-yellow-50 border border-yellow-400 block rounded"></span>
+                    <span>無匹配但保留 (Null Padding)</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                    <span className="w-3 h-3 opacity-40 grayscale bg-white border border-slate-300 block rounded"></span>
+                    <span>被排除 (Excluded)</span>
+                    </div>
+                </>
+             )}
+          </div>
         </div>
+
+        {/* Results & Code Section */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            
+            {/* Result Table */}
+            <div className="bg-white rounded-xl shadow-lg border border-slate-200 p-6">
+                <h2 className="text-lg font-bold mb-4 flex items-center gap-2">
+                    <span className="bg-indigo-100 text-indigo-700 p-1 rounded">3</span>
+                    查詢結果 (Result Set)
+                </h2>
+                <div className="overflow-x-auto max-h-64 overflow-y-auto">
+                    <table className="w-full text-sm text-left relative">
+                        <thead className="text-xs text-slate-500 uppercase bg-slate-50 border-b sticky top-0 shadow-sm z-10">
+                            <tr>
+                                <th className="px-3 py-2 bg-slate-50">ID (A)</th>
+                                <th className="px-3 py-2 bg-slate-50">Name</th>
+                                <th className="px-3 py-2 border-l border-slate-200 bg-slate-50">OrdID (B)</th>
+                                <th className="px-3 py-2 bg-slate-50">Amt</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {resultData.length === 0 ? (
+                                <tr><td colSpan="4" className="p-4 text-center text-slate-400">無結果</td></tr>
+                            ) : (
+                                resultData.map((row, i) => (
+                                    <tr key={i} className="border-b hover:bg-slate-50 transition-colors">
+                                        <td className="px-3 py-2 font-mono">
+                                            {row.id === null ? <span className="text-red-400 italic">NULL</span> : row.id}
+                                        </td>
+                                        <td className="px-3 py-2">
+                                            {row.name === null ? <span className="text-red-400 italic">NULL</span> : row.name}
+                                        </td>
+                                        <td className="px-3 py-2 border-l border-slate-200 font-mono">
+                                            {row.order_id === null ? <span className="text-red-400 italic">NULL</span> : row.order_id}
+                                        </td>
+                                        <td className="px-3 py-2">
+                                            {row.amount === null ? <span className="text-red-400 italic">NULL</span> : row.amount}
+                                        </td>
+                                    </tr>
+                                ))
+                            )}
+                        </tbody>
+                    </table>
+                </div>
+                <div className="mt-2 text-xs text-right text-slate-400">
+                    共 {resultData.length} 筆資料
+                </div>
+            </div>
+
+            {/* SQL Code & Explanation */}
+            <div className="flex flex-col gap-4">
+                <div className="bg-slate-900 text-slate-200 rounded-xl p-6 shadow-lg font-mono text-sm relative overflow-hidden group">
+                    <div className="absolute top-2 right-2 text-xs text-slate-500 font-sans uppercase tracking-wider">SQL Query</div>
+                    <pre className="whitespace-pre-wrap z-10 relative">
+                        {sqlQuery.split('\n').map((line, i) => (
+                             <div key={i} className={line.includes('JOIN') || line.includes('WHERE') ? 'text-pink-400 font-bold' : ''}>{line}</div>
+                        ))}
+                    </pre>
+                </div>
+
+                <div className="bg-blue-50 border border-blue-100 rounded-xl p-6 flex-1">
+                     <h3 className="font-bold text-blue-800 flex items-center gap-2 mb-2">
+                        <Info className="w-4 h-4" />
+                        這是什麼意思？
+                     </h3>
+                     <p className="text-sm text-blue-700 leading-relaxed">
+                        {mode === MODES.INNER && "標準寫法。只返回兩個表中「ID」匹配的行。大壯(3)和美美(4)因為沒有訂單而被排除。"}
+                        {mode === MODES.IMPLICIT && "隱式連接 (Implicit Join)。這是在 SQL-92 標準之前的老式寫法。它通過在 FROM 中列出兩個表，然後在 WHERE 中指定連接條件。如果不小心忘了 WHERE，就會變成災難性的 Cross Join。結果與 Inner Join 完全相同。"}
+                        {mode === MODES.LEFT && "以左表 (Users) 為主。所有用戶都會顯示。如果有訂單，顯示訂單詳情；如果沒有訂單（如大壯），訂單欄位會填補 NULL。"}
+                        {mode === MODES.RIGHT && "以右表 (Orders) 為主。所有訂單都會顯示。如果訂單找不到對應的用戶（如 Order 104），用戶欄位會填補 NULL。"}
+                        {mode === MODES.FULL && "貪婪模式！保留兩邊所有的資料。不管有沒有匹配，所有用戶和所有訂單都會出現在結果中，缺少的資料全部用 NULL 填補。"}
+                        {mode === MODES.CROSS && "笛卡爾積 (Cartesian Product)。這是將 Table A 的每一行與 Table B 的每一行強制配對。4 個用戶 x 4 筆訂單 = 16 筆結果。這通常發生在忘了寫 WHERE 條件的時候！"}
+                     </p>
+                </div>
+            </div>
+
+        </div>
+
+      </div>
     </div>
+  );
+};
 
-    <script>
-        // 初始化點的座標
-        const points = [
-            { x: 400, y: 150 }, // 頂點 A
-            { x: 200, y: 450 }, // 頂點 B
-            { x: 600, y: 450 }  // 頂點 C
-        ];
-
-        // 狀態變數
-        let draggingPointIndex = -1;
-        const svg = document.getElementById('svg');
-        const triangle = document.getElementById('triangle');
-        
-        // 獲取 SVG 點變換矩陣，用於將滑鼠座標轉換為 SVG 座標
-        function getMousePosition(evt) {
-            const CTM = svg.getScreenCTM();
-            let x, y;
-            if (evt.touches) {
-                x = evt.touches[0].clientX;
-                y = evt.touches[0].clientY;
-            } else {
-                x = evt.clientX;
-                y = evt.clientY;
-            }
-            return {
-                x: (x - CTM.e) / CTM.a,
-                y: (y - CTM.f) / CTM.d
-            };
-        }
-
-        // 計算兩點距離
-        function dist(p1, p2) {
-            return Math.sqrt(Math.pow(p2.x - p1.x, 2) + Math.pow(p2.y - p1.y, 2));
-        }
-
-        // 計算角度 (使用餘弦定理)
-        // 回傳值為度數
-        function calculateAngle(pTarget, pA, pB) {
-            const a = dist(pTarget, pB);
-            const b = dist(pTarget, pA);
-            const c = dist(pA, pB);
-            
-            // 餘弦定理: c^2 = a^2 + b^2 - 2ab cos(C)
-            // cos(C) = (a^2 + b^2 - c^2) / 2ab
-            let cosAngle = (a * a + b * b - c * c) / (2 * a * b);
-            
-            // 防止浮點數誤差導致數值超出 [-1, 1]
-            cosAngle = Math.max(-1, Math.min(1, cosAngle));
-            
-            const angleRad = Math.acos(cosAngle);
-            return (angleRad * 180) / Math.PI;
-        }
-
-        // 繪製圓弧路徑
-        function getArcPath(center, pA, pB, radius) {
-            // 計算從 center 指向 pA 和 pB 的角度
-            const startAngle = Math.atan2(pA.y - center.y, pA.x - center.x);
-            const endAngle = Math.atan2(pB.y - center.y, pB.x - center.x);
-
-            let diff = endAngle - startAngle;
-            
-            // 確保走內角 (三角形內角和 < 360，這裡簡化處理選擇較小的夾角繪製)
-            // 這裡需要透過叉積或其他方式判斷方向，但簡單的視覺修正如下：
-            while (diff <= -Math.PI) diff += 2 * Math.PI;
-            while (diff > Math.PI) diff -= 2 * Math.PI;
-
-            // 如果夾角過小，就不畫弧線
-            if (Math.abs(diff) < 0.1) return "";
-
-            // SVG Arc 指令: A rx ry x-axis-rotation large-arc-flag sweep-flag x y
-            // sweep-flag 決定順時針還是逆時針
-            const sweepFlag = diff > 0 ? 1 : 0;
-            
-            const startX = center.x + radius * Math.cos(startAngle);
-            const startY = center.y + radius * Math.sin(startAngle);
-            const endX = center.x + radius * Math.cos(endAngle);
-            const endY = center.y + radius * Math.sin(endAngle);
-
-            return `M ${center.x} ${center.y} L ${startX} ${startY} A ${radius} ${radius} 0 0 ${sweepFlag} ${endX} ${endY} Z`;
-        }
-
-        // 核心渲染函數
-        function update() {
-            // 1. 更新三角形形狀
-            const pointsStr = points.map(p => `${p.x},${p.y}`).join(' ');
-            triangle.setAttribute('points', pointsStr);
-
-            // 2. 更新每個頂點的位置、角度和文字
-            points.forEach((p, i) => {
-                // 更新控制點位置
-                const circle = document.getElementById(`p${i}`);
-                circle.setAttribute('cx', p.x);
-                circle.setAttribute('cy', p.y);
-
-                // 取得另外兩個點的索引
-                const prevIndex = (i + 2) % 3;
-                const nextIndex = (i + 1) % 3;
-                const pPrev = points[prevIndex];
-                const pNext = points[nextIndex];
-
-                // 計算角度
-                const angle = calculateAngle(p, pPrev, pNext);
-                
-                // 更新角度文字
-                const textEl = document.getElementById(`text${i}`);
-                textEl.textContent = Math.round(angle) + '°';
-
-                // 計算文字位置：放在角平分線方向的外側
-                // 計算從頂點指向另外兩點的向量
-                let v1 = { x: pPrev.x - p.x, y: pPrev.y - p.y };
-                let v2 = { x: pNext.x - p.x, y: pNext.y - p.y };
-                // 單位化
-                const len1 = Math.sqrt(v1.x*v1.x + v1.y*v1.y);
-                const len2 = Math.sqrt(v2.x*v2.x + v2.y*v2.y);
-                v1.x /= len1; v1.y /= len1;
-                v2.x /= len2; v2.y /= len2;
-                
-                // 平均向量 (角平分線方向，指向三角形內部)
-                let bisector = { x: v1.x + v2.x, y: v1.y + v2.y };
-                const bLen = Math.sqrt(bisector.x*bisector.x + bisector.y*bisector.y);
-                
-                // 為了把文字放在頂點"外側"，我們取反向
-                const offsetDistance = 35; // 文字距離頂點的距離
-                let textX, textY;
-
-                if (bLen < 0.01) {
-                    // 極端情況：三點共線
-                    textX = p.x; 
-                    textY = p.y - 20;
-                } else {
-                    bisector.x /= bLen;
-                    bisector.y /= bLen;
-                    textX = p.x - bisector.x * offsetDistance;
-                    textY = p.y - bisector.y * offsetDistance;
-                }
-
-                textEl.setAttribute('x', textX);
-                textEl.setAttribute('y', textY);
-
-                // 繪製角度弧線 (視覺裝飾)
-                // 簡單起見，我們只在角度大於 10 度時繪製
-                const arcEl = document.getElementById(`arc${i}`);
-                if (angle > 5) {
-                    const arcRadius = 30; // 弧線半徑
-                    const arcPath = getArcPath(p, pPrev, pNext, arcRadius);
-                    arcEl.setAttribute('d', arcPath);
-                    // 根據角度大小改變弧線顏色深淺
-                    arcEl.style.fill = `rgba(59, 130, 246, ${Math.min(0.5, angle/360)})`;
-                } else {
-                    arcEl.setAttribute('d', '');
-                }
-            });
-        }
-
-        // 事件監聽器綁定
-        points.forEach((_, i) => {
-            const circle = document.getElementById(`p${i}`);
-            
-            // 滑鼠按下
-            circle.addEventListener('mousedown', (e) => {
-                e.preventDefault(); // 防止文字選取
-                draggingPointIndex = i;
-                circle.classList.add('active');
-            });
-            
-            // 觸控開始
-            circle.addEventListener('touchstart', (e) => {
-                e.preventDefault();
-                draggingPointIndex = i;
-                circle.classList.add('active');
-            }, {passive: false});
-        });
-
-        // 全域移動事件 (綁定在 window 確保拖太快出界也能感應)
-        window.addEventListener('mousemove', (e) => {
-            if (draggingPointIndex !== -1) {
-                const pos = getMousePosition(e);
-                // 限制範圍 (可選，防止拖出畫面太遠)
-                points[draggingPointIndex].x = pos.x;
-                points[draggingPointIndex].y = pos.y;
-                update();
-            }
-        });
-
-        window.addEventListener('touchmove', (e) => {
-            if (draggingPointIndex !== -1) {
-                e.preventDefault(); // 防止手機畫面捲動
-                const pos = getMousePosition(e);
-                points[draggingPointIndex].x = pos.x;
-                points[draggingPointIndex].y = pos.y;
-                update();
-            }
-        }, {passive: false});
-
-        // 放開事件
-        const stopDrag = () => {
-            if (draggingPointIndex !== -1) {
-                document.getElementById(`p${draggingPointIndex}`).classList.remove('active');
-                draggingPointIndex = -1;
-            }
-        };
-
-        window.addEventListener('mouseup', stopDrag);
-        window.addEventListener('touchend', stopDrag);
-
-        // 視窗大小改變時重新計算座標系統 (SVG viewbox 是固定的，但以防萬一)
-        window.addEventListener('resize', update);
-
-        // 初始渲染
-        update();
-
-    </script>
-</body>
-</html>
+export default SQLJoinVisualizer;
