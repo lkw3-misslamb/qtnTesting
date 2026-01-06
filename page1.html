@@ -1,282 +1,503 @@
 <!DOCTYPE html>
-<html lang="zh-Hant">
+<html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SVG 互動三角形角度示範</title>
+    <title>排序演算法視覺化 v2 (Sorting Visualizer)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
     <style>
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            height: 100vh;
-            margin: 0;
-            background-color: #f4f4f9;
-            overflow: hidden; /* 防止拖曳時出現捲軸 */
+            font-family: 'Noto Sans TC', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
         }
-
-        h2 {
-            color: #333;
-            margin-bottom: 10px;
-            pointer-events: none;
-            user-select: none;
+        .bar {
+            transition: height 0.1s ease, fill 0.1s ease, x 0.2s ease;
         }
-
-        .instruction {
-            color: #666;
-            font-size: 0.9rem;
-            margin-bottom: 20px;
-            pointer-events: none;
-            user-select: none;
+        /* 自定義滑塊樣式 */
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 16px;
+            width: 16px;
+            border-radius: 50%;
+            background: #4f46e5;
+            cursor: pointer;
+            margin-top: -6px;
         }
-
-        #canvas-container {
-            position: relative;
-            width: 90vw; /* 響應式寬度 */
-            height: 70vh; /* 響應式高度 */
-            background: white;
-            border-radius: 12px;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
-            border: 1px solid #ddd;
-        }
-
-        svg {
+        input[type=range]::-webkit-slider-runnable-track {
             width: 100%;
-            height: 100%;
-            cursor: default;
-        }
-
-        /* 三角形樣式 */
-        .triangle {
-            fill: rgba(66, 133, 244, 0.2);
-            stroke: #4285f4;
-            stroke-width: 3;
-            stroke-linejoin: round;
-        }
-
-        /* 控制點樣式 */
-        .control-point {
-            fill: #db4437;
-            stroke: white;
-            stroke-width: 2;
-            cursor: grab;
-            transition: r 0.2s ease;
-        }
-
-        .control-point:hover {
-            r: 10; /* 滑鼠懸停時放大 */
-        }
-
-        .control-point:active {
-            cursor: grabbing;
-            fill: #c53929;
-        }
-
-        /* 文字標籤樣式 */
-        .angle-label {
-            font-size: 16px;
-            font-weight: bold;
-            fill: #333;
-            pointer-events: none; /* 讓滑鼠可以直接穿透文字點選下方的圓點 */
-            text-anchor: middle;
-            dominant-baseline: middle;
-            user-select: none;
-        }
-
-        /* 角度弧線 (選配) */
-        .angle-arc {
-            fill: none;
-            stroke: #f4b400;
-            stroke-width: 2;
-            opacity: 0.6;
+            height: 4px;
+            cursor: pointer;
+            background: #e5e7eb;
+            border-radius: 2px;
         }
     </style>
 </head>
-<body>
+<body class="bg-slate-50 text-slate-800 flex flex-col min-h-screen">
 
-    <h2>互動三角形角度計算</h2>
-    <div class="instruction">拖動紅色頂點以改變形狀</div>
+    <!-- 標題區 -->
+    <header class="bg-white shadow-sm p-4 text-center z-10">
+        <h1 class="text-2xl font-bold text-indigo-600 tracking-wide">排序演算法實驗室</h1>
+        <p class="text-sm text-slate-500 mt-1">互動式教學：氣泡、選擇、插入排序法</p>
+    </header>
 
-    <div id="canvas-container">
-        <svg id="triangleSvg">
-            <!-- 定義三個角度的弧線 -->
-            <path id="arc0" class="angle-arc"></path>
-            <path id="arc1" class="angle-arc"></path>
-            <path id="arc2" class="angle-arc"></path>
-
-            <!-- 三角形本體 -->
-            <polygon id="polygon" class="triangle" points=""></polygon>
-
-            <!-- 角度文字 -->
-            <text id="text0" class="angle-label">0°</text>
-            <text id="text1" class="angle-label">0°</text>
-            <text id="text2" class="angle-label">0°</text>
-
-            <!-- 三個可拖曳的頂點 (放在最後以確保在最上層) -->
-            <circle id="p0" class="control-point" r="8"></circle>
-            <circle id="p1" class="control-point" r="8"></circle>
-            <circle id="p2" class="control-point" r="8"></circle>
-        </svg>
-    </div>
-
-<script>
-    // 初始化頂點座標 (相對於 SVG viewBox 或像素)
-    // 這裡我們會在 window onload 時根據容器大小動態設定初始位置
-    const points = [
-        { x: 0, y: 0 },
-        { x: 0, y: 0 },
-        { x: 0, y: 0 }
-    ];
-
-    const svg = document.getElementById('triangleSvg');
-    const polygon = document.getElementById('polygon');
-    const controls = [
-        document.getElementById('p0'),
-        document.getElementById('p1'),
-        document.getElementById('p2')
-    ];
-    const texts = [
-        document.getElementById('text0'),
-        document.getElementById('text1'),
-        document.getElementById('text2')
-    ];
-    const arcs = [
-        document.getElementById('arc0'),
-        document.getElementById('arc1'),
-        document.getElementById('arc2')
-    ];
-
-    let activePointIndex = null;
-
-    // 初始化：設定初始位置
-    function init() {
-        const rect = svg.getBoundingClientRect();
-        const w = rect.width;
-        const h = rect.height;
-
-        // 設定一個正三角形作為預設值
-        points[0] = { x: w * 0.5, y: h * 0.2 };
-        points[1] = { x: w * 0.2, y: h * 0.8 };
-        points[2] = { x: w * 0.8, y: h * 0.8 };
-
-        updateView();
-    }
-
-    // 計算兩點距離
-    function dist(p1, p2) {
-        return Math.sqrt(Math.pow(p1.x - p2.x, 2) + Math.pow(p1.y - p2.y, 2));
-    }
-
-    // 餘弦定理計算角度 (回傳度數)
-    function calculateAngle(a, b, c) {
-        // cosA = (b^2 + c^2 - a^2) / 2bc
-        const rad = Math.acos((b * b + c * c - a * a) / (2 * b * c));
-        return (rad * 180 / Math.PI);
-    }
-
-    // 核心繪圖邏輯
-    function updateView() {
-        // 1. 更新三角形 Polygon
-        const pointsStr = points.map(p => `${p.x},${p.y}`).join(' ');
-        polygon.setAttribute('points', pointsStr);
-
-        // 計算邊長
-        const a = dist(points[1], points[2]); // 對應角0的邊
-        const b = dist(points[0], points[2]); // 對應角1的邊
-        const c = dist(points[0], points[1]); // 對應角2的邊
-
-        // 計算角度
-        const ang0 = calculateAngle(a, b, c);
-        const ang1 = calculateAngle(b, a, c);
-        const ang2 = calculateAngle(c, a, b);
+    <!-- 主要內容區 -->
+    <main class="flex-grow container mx-auto p-4 flex flex-col items-center max-w-5xl">
         
-        const angles = [ang0, ang1, ang2];
-
-        // 計算重心 (Centroid)，用於推算文字標籤的偏移方向
-        const cx = (points[0].x + points[1].x + points[2].x) / 3;
-        const cy = (points[0].y + points[1].y + points[2].y) / 3;
-
-        for (let i = 0; i < 3; i++) {
-            // 2. 更新圓點位置
-            controls[i].setAttribute('cx', points[i].x);
-            controls[i].setAttribute('cy', points[i].y);
-
-            // 3. 更新文字數值與位置
-            // 計算從重心指向頂點的向量，將文字往外推一點
-            const dx = points[i].x - cx;
-            const dy = points[i].y - cy;
-            const len = Math.sqrt(dx*dx + dy*dy);
-            const offset = 35; // 文字距離頂點的偏移量
+        <!-- 控制面板 -->
+        <div class="w-full bg-white rounded-xl shadow-sm border border-slate-200 p-5 mb-6 transition-all">
             
-            // 正規化並應用偏移
-            const textX = points[i].x + (dx / len) * offset;
-            const textY = points[i].y + (dy / len) * offset;
+            <!-- 上排：演算法選擇與主要操作 -->
+            <div class="flex flex-col md:flex-row justify-between items-center gap-4 mb-4">
+                
+                <!-- 演算法選擇 -->
+                <div class="flex bg-slate-100 p-1 rounded-lg">
+                    <button id="btn-bubble" onclick="setAlgorithm('bubble')" class="px-4 py-2 rounded-md text-sm font-medium transition-all duration-200 text-slate-600 hover:text-indigo-600">氣泡排序</button>
+                    <button id="btn-selection" onclick="setAlgorithm('selection')" class="px-4 py-2 rounded-md text-sm font-medium transition-all duration-200 text-slate-600 hover:text-indigo-600">選擇排序</button>
+                    <button id="btn-insertion" onclick="setAlgorithm('insertion')" class="px-4 py-2 rounded-md text-sm font-medium transition-all duration-200 text-slate-600 hover:text-indigo-600">插入排序</button>
+                </div>
 
-            texts[i].setAttribute('x', textX);
-            texts[i].setAttribute('y', textY);
+                <!-- 數據生成控制 -->
+                <div class="flex items-center gap-3 bg-slate-50 px-4 py-2 rounded-lg border border-slate-200">
+                    <label for="array-size" class="text-sm font-medium text-slate-600 whitespace-nowrap">數量:</label>
+                    <input type="number" id="array-size" min="5" max="150" value="30" class="w-16 px-2 py-1 text-center border border-slate-300 rounded focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm">
+                    <button id="btn-reset" onclick="resetAndGenerate()" class="ml-2 text-sm text-blue-600 hover:text-blue-800 font-medium hover:underline">重新產生</button>
+                </div>
+            </div>
+
+            <!-- 下排：播放控制與速度 -->
+            <div class="flex flex-col md:flex-row items-center gap-6 border-t border-slate-100 pt-4">
+                
+                <!-- 播放/暫停按鈕 -->
+                <button id="btn-control" onclick="handleControlClick()" class="w-full md:w-auto px-8 py-2.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 active:scale-95 transition shadow-md font-bold flex items-center justify-center gap-2">
+                    <svg id="icon-play" xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clip-rule="evenodd" /></svg>
+                    <span id="btn-control-text">開始排序</span>
+                </button>
+
+                <!-- 速度滑塊 -->
+                <div class="flex-grow w-full flex items-center gap-3">
+                    <span class="text-xs font-bold text-slate-400">慢</span>
+                    <input type="range" id="speed-slider" min="1" max="100" value="60" class="flex-grow h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer">
+                    <span class="text-xs font-bold text-slate-400">快</span>
+                </div>
+            </div>
             
-            // 處理 NaN (例如三點重合時)
-            const displayAngle = isNaN(angles[i]) ? 0 : Math.round(angles[i]);
-            texts[i].textContent = `${displayAngle}°`;
-        }
-    }
+            <!-- 狀態文字 -->
+            <div id="status-text" class="mt-3 text-center text-sm font-mono h-5 text-indigo-500 font-medium">
+                準備就緒
+            </div>
+        </div>
 
-    // --- 事件監聽 (拖曳邏輯) ---
+        <!-- 視覺化畫布 (SVG) -->
+        <div class="w-full bg-white rounded-xl shadow-lg border border-slate-200 p-6 relative h-[450px] flex items-end justify-center overflow-hidden">
+            <svg id="visualizer" width="100%" height="100%" preserveAspectRatio="none" class="w-full h-full">
+                <!-- Javascript 將在此繪製 Rect -->
+            </svg>
+            
+            <!-- 圖例 -->
+            <div class="absolute top-4 right-4 bg-white/95 backdrop-blur px-3 py-2 rounded-lg border border-slate-100 shadow-sm text-xs flex flex-col gap-1.5 z-10">
+                <div class="flex items-center gap-2"><div class="w-3 h-3 bg-blue-500 rounded-sm"></div> <span class="text-slate-600">未排序</span></div>
+                <div class="flex items-center gap-2"><div class="w-3 h-3 bg-yellow-400 rounded-sm"></div> <span class="text-slate-600">比較中</span></div>
+                <div class="flex items-center gap-2"><div class="w-3 h-3 bg-red-500 rounded-sm"></div> <span class="text-slate-600">交換/覆蓋</span></div>
+                <div class="flex items-center gap-2"><div class="w-3 h-3 bg-purple-500 rounded-sm"></div> <span class="text-slate-600">基準值</span></div>
+                <div class="flex items-center gap-2"><div class="w-3 h-3 bg-green-500 rounded-sm"></div> <span class="text-slate-600">已排序</span></div>
+            </div>
+        </div>
 
-    // 將滑鼠/觸控座標轉換為 SVG 內部座標
-    function getMousePosition(evt) {
-        const CTM = svg.getScreenCTM();
-        if (evt.touches) { evt = evt.touches[0]; }
-        return {
-            x: (evt.clientX - CTM.e) / CTM.a,
-            y: (evt.clientY - CTM.f) / CTM.d
+        <!-- 演算法說明卡片 -->
+        <div class="w-full mt-6">
+            <div id="desc-bubble" class="algo-desc hidden bg-white p-5 rounded-lg shadow-sm border-l-4 border-indigo-500">
+                <h3 class="font-bold text-lg text-slate-800 mb-1">氣泡排序 (Bubble Sort)</h3>
+                <p class="text-slate-600 text-sm leading-relaxed">最簡單的排序演算法之一。它重複地走訪過要排序的數列，一次比較兩個元素，如果他們的順序錯誤就把他們交換過來。</p>
+            </div>
+            <div id="desc-selection" class="algo-desc hidden bg-white p-5 rounded-lg shadow-sm border-l-4 border-indigo-500">
+                <h3 class="font-bold text-lg text-slate-800 mb-1">選擇排序 (Selection Sort)</h3>
+                <p class="text-slate-600 text-sm leading-relaxed">工作原理是每一次從待排序的數據元素中選出最小（或最大）的一個元素，存放在序列的起始位置，直到全部待排序的數據元素排完。</p>
+            </div>
+            <div id="desc-insertion" class="algo-desc hidden bg-white p-5 rounded-lg shadow-sm border-l-4 border-indigo-500">
+                <h3 class="font-bold text-lg text-slate-800 mb-1">插入排序 (Insertion Sort)</h3>
+                <p class="text-slate-600 text-sm leading-relaxed">類似整理撲克牌。將一個數據插入到已經排好序的有序數據中，從而得到一個新的、個數加一的有序數據。</p>
+            </div>
+        </div>
+
+    </main>
+
+    <script>
+        // --- 變數與狀態 ---
+        const svg = document.getElementById('visualizer');
+        const statusText = document.getElementById('status-text');
+        const speedSlider = document.getElementById('speed-slider');
+        const sizeInput = document.getElementById('array-size');
+        const btnControl = document.getElementById('btn-control');
+        const btnControlText = document.getElementById('btn-control-text');
+        const iconPlay = `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clip-rule="evenodd" /></svg>`;
+        const iconPause = `<svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zM7 8a1 1 0 012 0v4a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v4a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd" /></svg>`;
+
+        let array = [];
+        let isSorting = false;
+        let isPaused = false;
+        let pausePromiseResolve = null; // 用於解決暫停的 Promise
+        let abortController = null;
+        let currentAlgorithm = 'bubble';
+        
+        const COLOR_DEFAULT = '#3b82f6'; 
+        const COLOR_COMPARE = '#facc15'; 
+        const COLOR_SWAP    = '#ef4444'; 
+        const COLOR_SORTED  = '#22c55e'; 
+        const COLOR_PIVOT   = '#a855f7'; 
+
+        // --- 初始化 ---
+        window.onload = () => {
+            setAlgorithm('bubble'); // 初始化默認算法
+            resetAndGenerate();
         };
-    }
 
-    function startDrag(evt, index) {
-        activePointIndex = index;
-        // 防止選取文字或預設行為
-        evt.preventDefault(); 
-    }
+        // --- 核心邏輯控制 ---
 
-    function drag(evt) {
-        if (activePointIndex !== null) {
-            evt.preventDefault();
-            const coord = getMousePosition(evt);
+        // 1. 產生新數組
+        function resetAndGenerate() {
+            // 如果正在排序，先強制停止
+            if (isSorting) {
+                forceStop();
+            }
+
+            // 獲取輸入數量並驗證
+            let size = parseInt(sizeInput.value);
+            if (isNaN(size)) size = 30;
+            if (size < 5) size = 5;
+            if (size > 150) size = 150; // 設置上限以免瀏覽器卡頓
+            sizeInput.value = size;
+
+            array = [];
+            svg.innerHTML = '';
             
-            // 更新當前活動點的座標
-            points[activePointIndex].x = coord.x;
-            points[activePointIndex].y = coord.y;
+            for (let i = 0; i < size; i++) {
+                const value = Math.floor(Math.random() * 90) + 5; // 5-95
+                array.push(value);
+            }
             
-            updateView();
+            drawArray();
+            updateControlBtnState('start');
+            statusText.textContent = `已生成 ${size} 個隨機數字`;
+            statusText.className = "mt-3 text-center text-sm font-mono h-5 text-slate-500";
         }
-    }
 
-    function endDrag() {
-        activePointIndex = null;
-    }
+        // 2. 繪圖
+        function drawArray() {
+            svg.innerHTML = ''; 
+            const width = svg.clientWidth;
+            const height = svg.clientHeight;
+            const n = array.length;
+            // 根據數量動態調整寬度和間距
+            const gapRatio = n > 50 ? 0.1 : 0.2; // 數量多時減少間隙
+            const totalGapSpace = width * gapRatio;
+            const availableSpace = width - totalGapSpace;
+            const barWidth = availableSpace / n;
+            const spacing = width / n;
 
-    // 綁定事件到三個控制點
-    controls.forEach((circle, index) => {
-        circle.addEventListener('mousedown', (e) => startDrag(e, index));
-        circle.addEventListener('touchstart', (e) => startDrag(e, index), {passive: false});
-    });
+            array.forEach((value, index) => {
+                const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+                const barHeight = (value / 100) * height;
+                
+                // 置中計算
+                const x = index * spacing + (spacing - barWidth) / 2;
+                
+                rect.setAttribute('x', x);
+                rect.setAttribute('y', height - barHeight);
+                rect.setAttribute('width', Math.max(barWidth, 1)); // 最小寬度1px
+                rect.setAttribute('height', barHeight);
+                rect.setAttribute('fill', COLOR_DEFAULT);
+                rect.setAttribute('rx', n > 60 ? 1 : 4); // 數量多時減少圓角
+                rect.setAttribute('id', `bar-${index}`);
+                rect.classList.add('bar');
+                
+                svg.appendChild(rect);
+            });
+        }
 
-    // 綁定全局移動事件 (確保拖太快滑出圓點時也能感應)
-    window.addEventListener('mousemove', drag);
-    window.addEventListener('mouseup', endDrag);
-    
-    // 觸控事件
-    window.addEventListener('touchmove', drag, {passive: false});
-    window.addEventListener('touchend', endDrag);
+        // 3. 按鈕點擊處理
+        function handleControlClick() {
+            if (!isSorting) {
+                startSort();
+            } else {
+                togglePause();
+            }
+        }
 
-    // 初始化繪製
-    window.onload = init;
-    // 視窗改變大小時重置 (可選)
-    window.onresize = init; 
+        // 4. 切換暫停/繼續
+        function togglePause() {
+            if (isPaused) {
+                // 繼續
+                isPaused = false;
+                if (pausePromiseResolve) {
+                    pausePromiseResolve();
+                    pausePromiseResolve = null;
+                }
+                updateControlBtnState('pause'); // 顯示為"暫停"按鈕 (表示正在運行)
+                statusText.textContent = "排序繼續...";
+            } else {
+                // 暫停
+                isPaused = true;
+                updateControlBtnState('resume'); // 顯示為"繼續"按鈕
+                statusText.textContent = "已暫停";
+            }
+        }
 
-</script>
+        // 5. 強制停止 (重置用)
+        function forceStop() {
+            if (abortController) abortController.abort();
+            // 如果暫停中被重置，必須解鎖 Promise 讓迴圈結束
+            if (isPaused && pausePromiseResolve) {
+                pausePromiseResolve();
+            }
+            isSorting = false;
+            isPaused = false;
+            enableInputs(true);
+        }
+
+        // --- 視覺化與延遲工具 ---
+
+        function getDelay() {
+            // 速度計算：值越大越快 (delay越小)
+            // 100 -> 1ms, 1 -> 500ms
+            const val = 101 - parseInt(speedSlider.value);
+            return Math.max(1, val * 4); 
+        }
+
+        // 核心 Sleep 函數 (包含暫停邏輯)
+        async function sleep(ms) {
+            // 先等待基本延遲
+            await new Promise(resolve => setTimeout(resolve, ms));
+
+            // 檢查是否暫停
+            if (isPaused) {
+                await new Promise(resolve => {
+                    pausePromiseResolve = resolve;
+                });
+            }
+        }
+
+        function checkAbort() {
+            if (abortController && abortController.signal.aborted) {
+                throw new Error('Sort Aborted');
+            }
+        }
+
+        function setColor(index, color) {
+            const bar = document.getElementById(`bar-${index}`);
+            if (bar) bar.setAttribute('fill', color);
+        }
+
+        function setHeight(index, value) {
+            const bar = document.getElementById(`bar-${index}`);
+            const height = svg.clientHeight;
+            const barHeight = (value / 100) * height;
+            if (bar) {
+                bar.setAttribute('y', height - barHeight);
+                bar.setAttribute('height', barHeight);
+            }
+        }
+
+        // --- 排序流程主控 ---
+
+        async function startSort() {
+            isSorting = true;
+            isPaused = false;
+            abortController = new AbortController();
+            
+            enableInputs(false); // 鎖定輸入框和算法切換
+            updateControlBtnState('pause');
+            statusText.textContent = "排序進行中...";
+            statusText.classList.add('text-indigo-600', 'font-bold');
+
+            try {
+                if (currentAlgorithm === 'bubble') await bubbleSort();
+                if (currentAlgorithm === 'selection') await selectionSort();
+                if (currentAlgorithm === 'insertion') await insertionSort();
+                
+                // 成功完成
+                statusText.textContent = "排序完成！";
+                statusText.className = "mt-3 text-center text-sm font-mono h-5 text-green-600 font-bold";
+                updateControlBtnState('done');
+            } catch (e) {
+                if (e.message === 'Sort Aborted') {
+                    // 正常中斷，不做處理
+                } else {
+                    console.error(e);
+                }
+            } finally {
+                isSorting = false;
+                isPaused = false;
+                enableInputs(true);
+                if (!abortController.signal.aborted) {
+                    // 如果是自然結束，將按鈕改回開始
+                    updateControlBtnState('start'); 
+                }
+            }
+        }
+
+        // --- 排序算法 (邏輯部分與之前類似，但加入了 checkAbort 和動態 sleep) ---
+
+        async function bubbleSort() {
+            const n = array.length;
+            for (let i = 0; i < n - 1; i++) {
+                checkAbort();
+                for (let j = 0; j < n - i - 1; j++) {
+                    checkAbort();
+                    setColor(j, COLOR_COMPARE);
+                    setColor(j + 1, COLOR_COMPARE);
+                    
+                    // 使用動態 getDelay() 確保滑塊即時生效
+                    await sleep(getDelay());
+
+                    if (array[j] > array[j + 1]) {
+                        setColor(j, COLOR_SWAP);
+                        setColor(j + 1, COLOR_SWAP);
+                        statusText.textContent = `交換: ${array[j]} > ${array[j+1]}`;
+                        await sleep(getDelay());
+
+                        let temp = array[j];
+                        array[j] = array[j + 1];
+                        array[j + 1] = temp;
+
+                        setHeight(j, array[j]);
+                        setHeight(j + 1, array[j + 1]);
+                        await sleep(getDelay());
+                    }
+                    setColor(j, COLOR_DEFAULT);
+                    setColor(j + 1, COLOR_DEFAULT);
+                }
+                setColor(n - i - 1, COLOR_SORTED);
+            }
+            setColor(0, COLOR_SORTED);
+        }
+
+        async function selectionSort() {
+            const n = array.length;
+            for (let i = 0; i < n; i++) {
+                checkAbort();
+                let minIdx = i;
+                setColor(minIdx, COLOR_PIVOT); 
+                statusText.textContent = `尋找最小值...`;
+                await sleep(getDelay());
+
+                for (let j = i + 1; j < n; j++) {
+                    checkAbort();
+                    setColor(j, COLOR_COMPARE);
+                    await sleep(getDelay() / 2); // 掃描稍微快一點
+
+                    if (array[j] < array[minIdx]) {
+                        if (minIdx !== i) setColor(minIdx, COLOR_DEFAULT);
+                        minIdx = j;
+                        setColor(minIdx, COLOR_PIVOT);
+                        statusText.textContent = `目前最小: ${array[minIdx]}`;
+                    } else {
+                        setColor(j, COLOR_DEFAULT);
+                    }
+                }
+                
+                if (minIdx !== i) {
+                    setColor(i, COLOR_SWAP);
+                    setColor(minIdx, COLOR_SWAP);
+                    await sleep(getDelay());
+                    
+                    let temp = array[i];
+                    array[i] = array[minIdx];
+                    array[minIdx] = temp;
+                    
+                    setHeight(i, array[i]);
+                    setHeight(minIdx, array[minIdx]);
+                    await sleep(getDelay());
+                    setColor(minIdx, COLOR_DEFAULT);
+                } else {
+                    setColor(minIdx, COLOR_DEFAULT);
+                }
+                setColor(i, COLOR_SORTED);
+            }
+        }
+
+        async function insertionSort() {
+            const n = array.length;
+            setColor(0, COLOR_SORTED);
+            for (let i = 1; i < n; i++) {
+                checkAbort();
+                let key = array[i];
+                let j = i - 1;
+                setColor(i, COLOR_PIVOT);
+                statusText.textContent = `插入: ${key}`;
+                await sleep(getDelay());
+
+                while (j >= 0 && array[j] > key) {
+                    checkAbort();
+                    setColor(j, COLOR_COMPARE);
+                    await sleep(getDelay());
+                    
+                    array[j + 1] = array[j];
+                    setHeight(j + 1, array[j]);
+                    setColor(j + 1, COLOR_SWAP);
+                    
+                    await sleep(getDelay());
+                    setColor(j + 1, COLOR_SORTED); 
+                    setColor(j, COLOR_SORTED);
+                    j--;
+                }
+                array[j + 1] = key;
+                setHeight(j + 1, key);
+                setColor(j + 1, COLOR_SWAP); 
+                await sleep(getDelay());
+                
+                for(let k = 0; k <= i; k++) setColor(k, COLOR_SORTED);
+            }
+        }
+
+        // --- UI 輔助函數 ---
+
+        function setAlgorithm(algo) {
+            if (isSorting) return; 
+            currentAlgorithm = algo;
+            
+            // 更新按鈕樣式
+            ['bubble', 'selection', 'insertion'].forEach(a => {
+                const btn = document.getElementById(`btn-${a}`);
+                const desc = document.getElementById(`desc-${a}`);
+                
+                if (a === algo) {
+                    btn.classList.add('bg-white', 'shadow-sm', 'text-indigo-600', 'ring-1', 'ring-slate-200');
+                    btn.classList.remove('text-slate-600');
+                    desc.classList.remove('hidden');
+                } else {
+                    btn.classList.remove('bg-white', 'shadow-sm', 'text-indigo-600', 'ring-1', 'ring-slate-200');
+                    btn.classList.add('text-slate-600');
+                    desc.classList.add('hidden');
+                }
+            });
+        }
+
+        function updateControlBtnState(state) {
+            btnControl.className = "w-full md:w-auto px-8 py-2.5 rounded-lg active:scale-95 transition shadow-md font-bold flex items-center justify-center gap-2 transition-colors duration-200";
+            
+            if (state === 'start' || state === 'done') {
+                btnControl.classList.add('bg-indigo-600', 'text-white', 'hover:bg-indigo-700');
+                btnControl.innerHTML = `${iconPlay}<span id="btn-control-text">開始排序</span>`;
+            } else if (state === 'pause') {
+                // 正在運行中，顯示暫停選項
+                btnControl.classList.add('bg-amber-500', 'text-white', 'hover:bg-amber-600');
+                btnControl.innerHTML = `${iconPause}<span id="btn-control-text">暫停</span>`;
+            } else if (state === 'resume') {
+                // 暫停中，顯示繼續選項
+                btnControl.classList.add('bg-green-600', 'text-white', 'hover:bg-green-700');
+                btnControl.innerHTML = `${iconPlay}<span id="btn-control-text">繼續</span>`;
+            }
+        }
+
+        function enableInputs(enabled) {
+            sizeInput.disabled = !enabled;
+            // 排序中我們不禁用算法按鈕，但點擊無效（在 setAlgorithm 處理）
+            // 但可以視覺上稍微變淡
+            const algoBtns = document.querySelectorAll('#btn-bubble, #btn-selection, #btn-insertion');
+            algoBtns.forEach(btn => {
+                btn.style.opacity = enabled ? '1' : '0.6';
+                btn.style.cursor = enabled ? 'pointer' : 'not-allowed';
+            });
+        }
+    </script>
 </body>
 </html>
