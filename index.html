@@ -9,12 +9,41 @@
 
     <h2>示範用 Prompt：</h2>
 
-        <pre style="background:#f0f0f0; padding:15px; border-radius:8px;">
+    <pre style="background:#f0f0f0; padding:15px; border-radius:8px;">
 Create web app，用 svg 繪製一個可交互動態示範：
 拖動三個頂點來改變三角形的形狀，並在畫面上即時計算與更新三個角度的數值。
 請以 HTML + CSS + JavaScript 完成，使用 SVG 繪製三角形與頂點控制點，
 拖動頂點時三角形需立即重繪並更新角度標示。界面需簡潔，角度以文字標示在各頂點旁。
     </pre>
+    
+    <pre style="background:#f0f0f0; padding:15px; border-radius:8px;">
+# Role (角色設定)
+你是一位精通 HTML5、SVG 和 JavaScript 的教育科技專家。你的目標是製作一個高互動性、視覺吸引力強的教學示範工具。
+# Task (任務)
+請編寫一個**單一檔案 (Single-file) 的 HTML**，用於展示以下概念：
+- **教學主題**：[ 填寫主題，例如：光合作用的過程 / 勾股定理的可視化 / 太陽系行星運轉 ]
+- **互動功能**：[ 填寫需求，例如：拖動滑塊改變數值 / 點擊按鈕開始動畫 / 滑鼠懸停顯示標籤 ]
+# Technical Constraints (技術限制 - 非常重要)
+1. **單一檔案**：CSS、JavaScript 和 HTML 必須全部包含在同一個 `.html` 檔案中，不要依賴外部連結。
+2. **繪圖技術**：使用 `<svg>` 繪製圖形，確保圖形清晰、色彩柔和且適合教學。
+3. **無障礙與美觀**：
+   - 使用現代化的 UI (圓角按鈕、陰影、舒適的配色)。
+   - 在畫面側邊或下方加入清楚的「操作說明」文字。
+4. **程式邏輯**：使用 Vanilla JavaScript (純 JS)，確保代碼乾淨且有註解。
+# Output (輸出)
+請直接提供完整的 HTML 代碼，讓我可以直接存檔並在瀏覽器打開。
+     </pre>
+    
+    <h2>例子用 Prompt：</h2>
+    <pre style="background:#f0f0f0; padding:15px; border-radius:8px;">
+
+        
+假設一位理化老師想教**「單擺運動 (Pendulum)」**，他只需要將上面的模版填入：
+
+教學主題：單擺運動的週期與長度關係 互動功能：有一個滑桿 (Slider) 可以調整繩子長度，單擺會根據長度改變擺動速度，並即時顯示週期數值。
+
+AI 生成後的預期效果： 這會產生一個網頁，中間有一個擺動的球，下方有一個拉桿。老師拉長繩子，球就擺得慢；縮短繩子，球就擺得快。
+     </pre>
 
     <h2>頁面連結示範：</h2>
     <p><a href="page1.html">進入 Page 1</a></p>
